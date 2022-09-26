@@ -1,0 +1,26 @@
+name: Python Build
+
+on: [ push, workflow_dispatch ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build the Distributions
+        run: |
+          if ref_description=$(git describe --tags HEAD 2> /dev/null)
+          then
+              version="$ref_description"
+          else
+              version="0.1.0"
+          fi
+          ./build.sh "$version"
+      # - name: Deploy the Package
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   env:
+      #     TWINE_PASSWORD: "${{ secrets.PYPI_API_TOKEN }}"
+      #   run: |
+      #     sudo apt-get install twine
+      #     tag="$(git describe --tags HEAD)"
+      #     twine upload --username __token__ --non-interactive --comment "Built from tag $tag" out/dist/cvg*
