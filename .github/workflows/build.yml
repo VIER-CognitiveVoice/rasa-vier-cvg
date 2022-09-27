@@ -23,4 +23,4 @@ jobs:
         run: |
           sudo apt-get install twine
           tag="$(git describe --tags HEAD)"
-          twine upload --username __token__ --non-interactive --comment "Built from tag $tag" out/dist/cvg*
+          twine upload --username __token__ --non-interactive --comment "Built from tag $tag" dist/rasa*
