@@ -1,1 +1,1 @@
-from cvg import CVGInput
+from rasa_vier_cvg.cvg import CVGInput
