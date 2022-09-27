@@ -1,4 +1,6 @@
+.idea/
 build/
 dist/
 *.egg-info/
 setup.py
+*.iml

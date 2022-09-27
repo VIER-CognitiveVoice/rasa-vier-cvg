@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages  # noqa: H301
 
-NAME = "rasa-cvg"
+NAME = "rasa-vier-cvg"
 VERSION = "${VERSION}"
 # To install the library, run the following
 #
