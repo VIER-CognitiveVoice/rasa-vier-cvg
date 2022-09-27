@@ -200,7 +200,7 @@ class CVGInput(InputChannel):
         if not credentials:
             cls.raise_missing_credentials_exception()
         token = credentials.get("token")
-        if token is None or type(token) != Text or len(token) > 0:
+        if token is None or type(token) != str or len(token) > 0:
             raise ValueError('No authentication token has been configured in your credentials.yml!')
         proxy = credentials.get("proxy")
 
