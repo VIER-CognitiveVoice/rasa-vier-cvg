@@ -1,7 +1,4 @@
-import asyncio
-from datetime import datetime
 import logging
-import inspect
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, Text
 import warnings
@@ -25,9 +22,7 @@ from cvg_sdk.model.drop_parameters import DropParameters
 from cvg_sdk.model.recording_start_parameters import RecordingStartParameters
 from cvg_sdk.model.recording_stop_parameters import RecordingStopParameters
 from cvg_sdk.model.play_parameters import PlayParameters
-from cvg_sdk.model.transcription_switch_parameters import (
-    TranscriptionSwitchParameters,
-)  # noqa: E501, F401
+from cvg_sdk.model.transcription_switch_parameters import TranscriptionSwitchParameters
 from cvg_sdk.model.bridge_parameters import BridgeParameters
 from cvg_sdk.model.forward_parameters import ForwardParameters
 from cvg_sdk.model.prompt_parameters import PromptParameters
@@ -35,28 +30,22 @@ from cvg_sdk.model.prompt_parameters import PromptParameters
 from cvg_sdk.model.inactivity_start_parameters import InactivityStartParameters  # noqa: E501, F401
 from cvg_sdk.model.inactivity_stop_parameters import InactivityStopParameters
 
-from cvg_sdk.model.accept_assist_parameters import AcceptAssistParameters
-from cvg_sdk.model.transcription_start_parameters import (
-    TranscriptionStartParameters,
-)  # noqa: E501, F401
-from cvg_sdk.model.transcription_stop_parameters import (
-    TranscriptionStopParameters,
-)  # noqa: E501, F401
-from cvg_sdk.model.assist_recording_start_parameters import (
-    AssistRecordingStartParameters,
-)  # noqa: E501, F401
-from cvg_sdk.model.assist_recording_stop_parameters import (
-    AssistRecordingStopParameters,
-)  # noqa: E501, F401
-
+from cvg_sdk.model.transcription_start_parameters import TranscriptionStartParameters
+from cvg_sdk.model.transcription_stop_parameters import TranscriptionStopParameters
+from cvg_sdk.model.assist_recording_start_parameters import AssistRecordingStartParameters
+from cvg_sdk.model.assist_recording_stop_parameters import AssistRecordingStopParameters
 from cvg_sdk.model.outbound_call_result import OutboundCallResult
-from cvg_sdk.model.outbound_call_success import OutboundCallSuccess
-from cvg_sdk.model.outbound_call_failure import OutboundCallFailure
 
 logger = logging.getLogger(__name__)
 
-BOT_INACTIVITY_INTENT = "/cvg_bot_inactivity"
-RESTART_INTENT = "/restart"
+CHANNEL_NAME = "vier-cvg"
+
+
+def make_metadata(payload: Any) -> Dict[Text, Any]:
+    return {
+        "cvg_body": payload
+    }
+
 
 class CVGOutput(OutputChannel):
     """Output channel for the Cognitive Voice Gateway"""
@@ -65,10 +54,13 @@ class CVGOutput(OutputChannel):
 
     @classmethod
     def name(cls) -> Text:
-        return "cvg"
+        return CHANNEL_NAME
 
     def __init__(
-        self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], proxy: Optional[Text] = None,
+        self,
+        callback_base_url: Text,
+        on_message: Callable[[UserMessage], Awaitable[Any]],
+        proxy: Optional[Text] = None,
     ) -> None:  # noqa: E501, F401
         configuration = Configuration.get_default_copy()
         configuration.host = callback_base_url
@@ -82,14 +74,20 @@ class CVGOutput(OutputChannel):
         self.assist_api = AssistApi(self.api_client)
 
     async def send_text_message(
-        self, recipient_id: Text, text: Text, **kwargs: Any
+        self,
+        recipient_id: Text,
+        text: Text,
+        **kwargs: Any,
     ) -> None:
         logger.info("Sending message to cvg: %s" % text)
         logger.info("Ignoring the following args: " + str(kwargs))
         self.call_api.say(SayParameters(dialog_id=recipient_id, text=text))
 
     async def _execute_operation_by_name(
-        self, operation_name: Text, body: Any, dialog_id: Text
+        self,
+        operation_name: Text,
+        body: Any,
+        dialog_id: Text,
     ):  # noqa: E501, F401
         def create_parameters(parameters_type: type):
             parameter_args = {}
@@ -108,49 +106,31 @@ class CVGOutput(OutputChannel):
                     )  # noqa: E501, F401
             return parameters_type(**parameter_args)
 
-        async def handle_outbound_call_result(outbound_call_result: OutboundCallResult, success_text: Text, failure_text: Text):
-            user_message : UserMessage = None
+        async def handle_outbound_call_result(outbound_call_result: OutboundCallResult, kind: Text):
             if outbound_call_result.status == "Success":
-                success_model : OutboundCallSuccess = outbound_call_result
                 user_message = UserMessage(
-                    text=success_text,
+                    text=f"/cvg_{kind}_success",
                     output_channel=self,
                     sender_id=dialog_id,
-                    input_channel="cvg",
-                    metadata={"cvg_body": success_model.to_dict()},
+                    input_channel=CHANNEL_NAME,
+                    metadata=make_metadata(outbound_call_result.to_dict()),
                 )
             elif outbound_call_result.status == "Failure":
-                failure_model : OutboundCallFailure = outbound_call_result
                 user_message = UserMessage(
-                    text=failure_text,
+                    text=f"/cvg_{kind}_failure",
                     output_channel=self,
                     sender_id=dialog_id,
-                    input_channel="cvg",
-                    metadata={"cvg_body": failure_model.to_dict()},
+                    input_channel=CHANNEL_NAME,
+                    metadata=make_metadata(outbound_call_result.to_dict()),
                 )
             else:
                 return response.text(f"Invalid OutboundCallResult status: {outbound_call_result.status}", status=400)
 
-            if user_message is not None:
-                logger.info(
-                    "Creating incoming UserMessage: {text=%s, output_channel=%s, sender_id=%s, metadata=%s}"  # noqa: E501, F401
-                    % (user_message.text, user_message.output_channel, user_message.sender_id, user_message.metadata)  # noqa: E501, F401
-                )
-                await self.on_message(user_message)
-
-        async def handle_bridge_response(outbound_call_result: OutboundCallResult):
-            await handle_outbound_call_result(
-                outbound_call_result=outbound_call_result,
-                success_text="/bridge_successful",
-                failure_text="/bridge_failed",
+            logger.info(
+                "Creating incoming UserMessage: {text=%s, output_channel=%s, sender_id=%s, metadata=%s}"  # noqa: E501, F401
+                % (user_message.text, user_message.output_channel, user_message.sender_id, user_message.metadata)  # noqa: E501, F401
             )
-
-        async def handle_forward_response(outbound_call_result: OutboundCallResult):
-            await handle_outbound_call_result(
-                outbound_call_result=outbound_call_result,
-                success_text="/forward_successful",
-                failure_text="/forward_failed",
-            )
+            await self.on_message(user_message)
 
         if operation_name == "cvg_call_drop":
             self.call_api.drop(create_parameters(DropParameters))
@@ -169,12 +149,14 @@ class CVGOutput(OutputChannel):
                 create_parameters(TranscriptionSwitchParameters)
             )  # noqa: E501, F401
         elif operation_name == "cvg_call_bridge":
-            await handle_bridge_response(
-                self.call_api.bridge(create_parameters(BridgeParameters))
+            await handle_outbound_call_result(
+                self.call_api.bridge(create_parameters(BridgeParameters)),
+                "bridge",
             )  # noqa: E501, F401
         elif operation_name == "cvg_call_forward":
-            await handle_forward_response(
-                self.call_api.forward(create_parameters(ForwardParameters))
+            await handle_outbound_call_result(
+                self.call_api.forward(create_parameters(ForwardParameters)),
+                "forward",
             )  # noqa: E501, F401
         elif operation_name == "cvg_call_say":
             self.call_api.say(create_parameters(SayParameters))
@@ -213,13 +195,9 @@ class CVGOutput(OutputChannel):
         json_message: Dict[Text, Any],
         **kwargs: Any,  # noqa: E501, F401
     ) -> None:
-        logger.info(
-            "Received custom json: %s to %s" % (json_message, recipient_id)
-        )  # noqa: E501, F401
+        logger.info("Received custom json: %s to %s" % (json_message, recipient_id))
         for key, value in json_message.items():
-            await self._execute_operation_by_name(
-                operation_name=key, dialog_id=recipient_id, body=value
-            )  # noqa: E501, F401
+            await self._execute_operation_by_name(operation_name=key, dialog_id=recipient_id, body=value)
 
     async def send_image_url(self, **_: Any) -> None:
         rasa.shared.utils.io.raise_warning(
@@ -233,7 +211,7 @@ class CVGInput(InputChannel):
 
     @classmethod
     def name(cls) -> Text:
-        return "cvg"
+        return CHANNEL_NAME
 
     @classmethod
     def from_credentials(
@@ -244,20 +222,11 @@ class CVGInput(InputChannel):
 
         return cls(
             credentials.get("proxy")
-            )
+        )
 
-    def __init__(self,
-                 proxy: Optional[Text] = None
-                 ) -> None:
-        
+    def __init__(self, proxy: Optional[Text] = None) -> None:
         self.callback = None
         self.proxy = proxy
-
-    # requires valid json in the request
-    def get_metadata(self, request: Request) -> Dict[Text, Any]:
-        return {
-            "cvg_body": request.json
-        }
 
     async def process_message(
         self,
@@ -267,15 +236,15 @@ class CVGInput(InputChannel):
         sender_id: Optional[Text],
     ) -> Any:
         try:
-            metadata = self.get_metadata(request)
             if text[-1] == ".":
                 text = text[:-1]
 
+            metadata = make_metadata(request.json)
             user_msg = UserMessage(
                 text=text,
-                output_channel=CVGOutput(metadata["cvg_body"]["callback"], on_new_message, self.proxy),
+                output_channel=CVGOutput(request.json["callback"], on_new_message, self.proxy),
                 sender_id=sender_id,
-                input_channel=self.name(),
+                input_channel=CHANNEL_NAME,
                 metadata=metadata,
             )
 
@@ -322,104 +291,46 @@ class CVGInput(InputChannel):
                 return decorated_function
             return decorator(func)
 
-        async def process_message_oneline(request: Request, text: Text): # This needs to be an async function
-            return await self.process_message( # This needs to be waited as process_message is an async function
+        async def process_message_oneline(request: Request, text: Text):
+            return await self.process_message(
                 request,
                 on_new_message,
                 text=text,
                 sender_id=request.json["dialogId"],
             )
             
-
         cvg_webhook = Blueprint(
-            "custom_webhook_{}".format(type(self).__name__),
-            inspect.getmodule(self).__name__,
+            "vier_cvg_webhook", __name__,
         )
-
-        @cvg_webhook.get("/")
-        async def health(_: Request) -> HTTPResponse:
-            return response.json({"status": "ok"})
 
         @cvg_webhook.post("/session")
         @valid_json
         async def session(request: Request) -> HTTPResponse:
-            bot_configuration = request.json["configuration"]
-            if "session_starter" not in bot_configuration:
-                return response.text("session_starter not set in BotConfiguration", status=400)
-            return await process_message_oneline(request, "/" + bot_configuration["session_starter"])
+            return await process_message_oneline(request, "/cvg_session")
         
         @cvg_webhook.post("/message")
         @valid_json
         async def message(request: Request) -> HTTPResponse:
-            
-            sender = request.json["dialogId"]
-            message = request.json["text"]
-            
-            return await process_message_oneline(request, message)
+            return await process_message_oneline(request, request.json["text"])
 
         @cvg_webhook.post("/answer")
         @valid_json
         async def answer(request: Request) -> HTTPResponse:
-            
-            answer_type = request.json["type"]
-            
-            if answer_type["name"] == "MultipleChoice":
-                payload = answer_type["id"]
-            elif answer_type["name"] == "Number":
-                payload = answer_type["value"]
-            elif answer_type["name"] == "Timeout":
-                payload = BOT_INACTIVITY_INTENT
-            else:
-                return response.text(f"Invalid Answer Type Object: {answer_type} Received", status=400)
-            return await process_message_oneline(request, payload)
+            return await process_message_oneline(request, "/cvg_answer_" + request.json["type"]["name"].lower())
 
         @cvg_webhook.post("/inactivity")
         @valid_json
         async def inactivity(request: Request) -> HTTPResponse:
-            """
-            The /inactivity endpoint is called when the user has been inactive for a certain amount of time.
-            The inactivity timeout is configured in the BotConfiguration.
-            Once the inactivity timeout is reached, the bot calls an intent with the name `BOT_INACTIVITY_INTENT`.
-            This is currently mapped to the custom `action_cvg_bot_inactivity` which
-            in turn calls the `utter_cvg_bot_inactivity` response in the domain.yml.
-            User can customize this behavior by changing the utterance in the domain.yml or by modifying the custom action.
-            """
-            
-            return await process_message_oneline(request, BOT_INACTIVITY_INTENT)
+            return await process_message_oneline(request, "/cvg_inactivity")
 
         @cvg_webhook.post("/terminated")
         @valid_json
         async def terminated(request: Request) -> HTTPResponse:
-            """
-            When the call was terminated, we need to make sure that we clear the
-            conversation state for the user. This is done by sending a 
-            `RESTART_INTENT` to the bot. This is the last step of the conversation.
-            And the bot will clear the conversation state.
-            """
-            return await process_message_oneline(request, RESTART_INTENT)
+            return await process_message_oneline(request, "/cvg_terminated")
 
         @cvg_webhook.post("/recording")
         @valid_json
         async def recording(request: Request) -> HTTPResponse:
-            """
-            We need not give any response to the user in the recording endpoint.
-            But we need to make sure to return the correct status code along with record id if available in the response.
-            """
-            
-            recording_status = request.json["status"]
-            recording_id = request.json["id"]
-            
-            return response.raw(f"Recording Status : {recording_status}, Recording ID: {recording_id}", status=204)
-
-        @cvg_webhook.post("/webhook")
-        async def webhook(request: Request) -> HTTPResponse:
-            sender_id = await self._extract_sender(request)
-            text = self._extract_message(request)
-
-            collector = self.get_output_channel()
-            await on_new_message(
-                UserMessage(text, collector, sender_id, input_channel=self.name())  # noqa: E501, F401
-            )
-            return response.text("success")
+            return await process_message_oneline(request, "/cvg_recording")
 
         return cvg_webhook
