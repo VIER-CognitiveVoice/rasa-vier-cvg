@@ -135,29 +135,17 @@ class CVGOutput(OutputChannel):
         if operation_name == "cvg_call_drop":
             self.call_api.drop(create_parameters(DropParameters))
         elif operation_name == "cvg_call_recording_start":
-            self.call_api.start_recording(
-                create_parameters(RecordingStartParameters)
-            )  # noqa: E501, F401
+            self.call_api.start_recording(create_parameters(RecordingStartParameters))
         elif operation_name == "cvg_call_recording_stop":
-            self.call_api.stop_recording(
-                create_parameters(RecordingStopParameters)
-            )  # noqa: E501, F401
+            self.call_api.stop_recording(create_parameters(RecordingStopParameters))
         elif operation_name == "cvg_call_play":
             self.call_api.play(create_parameters(PlayParameters))
         elif operation_name == "cvg_call_transcription_switch":
-            self.call_api.switch_transcription(
-                create_parameters(TranscriptionSwitchParameters)
-            )  # noqa: E501, F401
+            self.call_api.switch_transcription(create_parameters(TranscriptionSwitchParameters))
         elif operation_name == "cvg_call_bridge":
-            await handle_outbound_call_result(
-                self.call_api.bridge(create_parameters(BridgeParameters)),
-                "bridge",
-            )  # noqa: E501, F401
+            await handle_outbound_call_result(self.call_api.bridge(create_parameters(BridgeParameters)), "bridge")
         elif operation_name == "cvg_call_forward":
-            await handle_outbound_call_result(
-                self.call_api.forward(create_parameters(ForwardParameters)),
-                "forward",
-            )  # noqa: E501, F401
+            await handle_outbound_call_result(self.call_api.forward(create_parameters(ForwardParameters)), "forward")
         elif operation_name == "cvg_call_say":
             self.call_api.say(create_parameters(SayParameters))
         elif operation_name == "cvg_call_prompt":
@@ -166,23 +154,14 @@ class CVGOutput(OutputChannel):
             self.call_api.start_inactivity(create_parameters(InactivityStartParameters))
         elif operation_name == "cvg_inactivity_stop":
             self.call_api.stop_inactivity(create_parameters(InactivityStopParameters))
-
         elif operation_name == "cvg_assist_transcription_start":
-            self.assist_api.start_transcription(
-                create_parameters(TranscriptionStartParameters)
-            ),  # noqa: E501, F401
+            self.assist_api.start_transcription(create_parameters(TranscriptionStartParameters))
         elif operation_name == "cvg_assist_transcription_stop":
-            self.assist_api.stop_transcription(
-                create_parameters(TranscriptionStopParameters)
-            ),  # noqa: E501, F401
+            self.assist_api.stop_transcription(create_parameters(TranscriptionStopParameters))
         elif operation_name == "cvg_assist_recording_start":
-            self.assist_api.start_recording(
-                create_parameters(AssistRecordingStartParameters)
-            ),  # noqa: E501, F401
+            self.assist_api.start_recording(create_parameters(AssistRecordingStartParameters))
         elif operation_name == "cvg_assist_recording_stop":
-            self.assist_api.stop_recording(
-                create_parameters(AssistRecordingStopParameters)
-            ),  # noqa: E501, F401
+            self.assist_api.stop_recording(create_parameters(AssistRecordingStopParameters))
         else:
             logger.error(
                 "Operation %s not found/not implemented yet" % operation_name
@@ -200,11 +179,12 @@ class CVGOutput(OutputChannel):
             await self._execute_operation_by_name(operation_name=key, dialog_id=recipient_id, body=value)
 
     async def send_image_url(self, **_: Any) -> None:
+        # We do not support images.
         rasa.shared.utils.io.raise_warning(
             "Ignoring image URL."
             "We cannot represent images as a voice bot."
             "Please define a voice-friendly alternative."
-        ) # We do not support images.
+        )
 
 class CVGInput(InputChannel):
     """Input channel for the Cognitive Voice Gateway"""
@@ -216,16 +196,19 @@ class CVGInput(InputChannel):
     @classmethod
     def from_credentials(
         cls, credentials: Optional[Dict[Text, Any]]
-    ) -> InputChannel:  # noqa: E501, F401
+    ) -> InputChannel:
         if not credentials:
             cls.raise_missing_credentials_exception()
+        token = credentials.get("token")
+        if token is None or type(token) != Text or len(token) > 0:
+            raise ValueError('No authentication token has been configured in your credentials.yml!')
+        proxy = credentials.get("proxy")
 
-        return cls(
-            credentials.get("proxy")
-        )
+        return cls(token, proxy)
 
-    def __init__(self, proxy: Optional[Text] = None) -> None:
+    def __init__(self, token: Text, proxy: Optional[Text] = None) -> None:
         self.callback = None
+        self.expected_authorization_header_value = f"Bearer {token}"
         self.proxy = proxy
 
     async def process_message(
@@ -263,30 +246,22 @@ class CVGInput(InputChannel):
     def blueprint(
         self, on_new_message: Callable[[UserMessage], Awaitable[Any]]
     ) -> Blueprint:
-        def valid_json(func):
+        def valid_request(func):
             def decorator(f):
                 @wraps(f)
                 async def decorated_function(request: HTTPResponse, *args, **kwargs):
+                    if request.headers.get("authorization") != self.expected_authorization_header_value:
+                        return response.text("bot token is invalid!", status=401)
+
                     if not request.headers.get("content-type") == "application/json":
-                        return response.text(
-                            "content-type is not supported. Please use application/json",  # noqa: E501, F401
-                            status=415,
-                        )  # noqa: E501, F401
-                    if request.json is None:
-                        return response.text(
-                            "body is not valid json.",
-                            status=400
-                        )
-                    if request.json["dialogId"] is None:
-                        return response.text(
-                            "dialogId is required",
-                            status=400
-                        )
-                    if request.json["callback"] is None:
-                        return response.text(
-                            "callback is required",
-                            status=400
-                        )
+                        return response.text("content-type is not supported. Please use application/json", status=415)
+                    json_body = request.json
+                    if json_body is None:
+                        return response.text("body is not valid json.", status=400)
+                    if json_body["dialogId"] is None:
+                        return response.text("dialogId is required", status=400)
+                    if json_body["callback"] is None:
+                        return response.text("callback is required", status=400)
                     return await f(request, *args, **kwargs)
                 return decorated_function
             return decorator(func)
@@ -304,32 +279,32 @@ class CVGInput(InputChannel):
         )
 
         @cvg_webhook.post("/session")
-        @valid_json
+        @valid_request
         async def session(request: Request) -> HTTPResponse:
             return await process_message_oneline(request, "/cvg_session")
         
         @cvg_webhook.post("/message")
-        @valid_json
+        @valid_request
         async def message(request: Request) -> HTTPResponse:
             return await process_message_oneline(request, request.json["text"])
 
         @cvg_webhook.post("/answer")
-        @valid_json
+        @valid_request
         async def answer(request: Request) -> HTTPResponse:
             return await process_message_oneline(request, "/cvg_answer_" + request.json["type"]["name"].lower())
 
         @cvg_webhook.post("/inactivity")
-        @valid_json
+        @valid_request
         async def inactivity(request: Request) -> HTTPResponse:
             return await process_message_oneline(request, "/cvg_inactivity")
 
         @cvg_webhook.post("/terminated")
-        @valid_json
+        @valid_request
         async def terminated(request: Request) -> HTTPResponse:
             return await process_message_oneline(request, "/cvg_terminated")
 
         @cvg_webhook.post("/recording")
-        @valid_json
+        @valid_request
         async def recording(request: Request) -> HTTPResponse:
             return await process_message_oneline(request, "/cvg_recording")
 
