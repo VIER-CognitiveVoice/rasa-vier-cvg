@@ -4,7 +4,7 @@ NAME = "rasa-vier-cvg"
 VERSION = "${VERSION}"
 REQUIRES = [
   "rasa-sdk",
-  "cvg-python-sdk",
+  "cvg-python-sdk>=0.4.0",
 ]
 
 with open("README.md") as f:
@@ -28,5 +28,6 @@ setup(
     install_requires=REQUIRES,
     packages=find_packages(),
     include_package_data=True,
+    license="MIT",
 )
 
