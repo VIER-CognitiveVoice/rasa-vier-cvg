@@ -3,7 +3,7 @@ from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, Text
 import warnings
 
-#ignore ResourceWarning, InsecureRequestWarning
+# ignore ResourceWarning, InsecureRequestWarning
 warnings.filterwarnings("ignore", category=ResourceWarning)
 
 from sanic import Blueprint, response
@@ -106,10 +106,10 @@ class CVGOutput(OutputChannel):
                     )  # noqa: E501, F401
             return parameters_type(**parameter_args)
 
-        async def handle_outbound_call_result(outbound_call_result: OutboundCallResult, kind: Text):
+        async def handle_outbound_call_result(outbound_call_result: OutboundCallResult):
             if outbound_call_result.status == "Success":
                 user_message = UserMessage(
-                    text=f"/cvg_{kind}_success",
+                    text=f"/cvg_outbound_success",
                     output_channel=self,
                     sender_id=dialog_id,
                     input_channel=CHANNEL_NAME,
@@ -117,7 +117,7 @@ class CVGOutput(OutputChannel):
                 )
             elif outbound_call_result.status == "Failure":
                 user_message = UserMessage(
-                    text=f"/cvg_{kind}_failure",
+                    text=f"/cvg_outbound_failure",
                     output_channel=self,
                     sender_id=dialog_id,
                     input_channel=CHANNEL_NAME,
@@ -143,9 +143,9 @@ class CVGOutput(OutputChannel):
         elif operation_name == "cvg_call_transcription_switch":
             self.call_api.switch_transcription(create_parameters(TranscriptionSwitchParameters))
         elif operation_name == "cvg_call_bridge":
-            await handle_outbound_call_result(self.call_api.bridge(create_parameters(BridgeParameters)), "bridge")
+            await handle_outbound_call_result(self.call_api.bridge(create_parameters(BridgeParameters)))
         elif operation_name == "cvg_call_forward":
-            await handle_outbound_call_result(self.call_api.forward(create_parameters(ForwardParameters)), "forward")
+            await handle_outbound_call_result(self.call_api.forward(create_parameters(ForwardParameters)))
         elif operation_name == "cvg_call_say":
             self.call_api.say(create_parameters(SayParameters))
         elif operation_name == "cvg_call_prompt":
