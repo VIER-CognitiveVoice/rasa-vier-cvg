@@ -89,6 +89,7 @@ class CVGOutput(OutputChannel):
         body: Any,
         dialog_id: Text,
     ):  # noqa: E501, F401
+        # TODO parameter injection needs to be different per kind of operation
         def create_parameters(parameters_type: type):
             parameter_args = {}
             for (
@@ -154,6 +155,7 @@ class CVGOutput(OutputChannel):
             self.call_api.start_inactivity(create_parameters(InactivityStartParameters))
         elif operation_name == "cvg_inactivity_stop":
             self.call_api.stop_inactivity(create_parameters(InactivityStopParameters))
+        # TODO: I don't think these work correctly with the current dialogId injection logic
         elif operation_name == "cvg_assist_transcription_start":
             self.assist_api.start_transcription(create_parameters(TranscriptionStartParameters))
         elif operation_name == "cvg_assist_transcription_stop":
