@@ -109,7 +109,7 @@ class CVGOutput(OutputChannel):
         async def handle_outbound_call_result(outbound_call_result: OutboundCallResult):
             if outbound_call_result.status == "Success":
                 user_message = UserMessage(
-                    text=f"/cvg_outbound_success",
+                    text="/cvg_outbound_success",
                     output_channel=self,
                     sender_id=dialog_id,
                     input_channel=CHANNEL_NAME,
@@ -117,7 +117,7 @@ class CVGOutput(OutputChannel):
                 )
             elif outbound_call_result.status == "Failure":
                 user_message = UserMessage(
-                    text=f"/cvg_outbound_failure",
+                    text="/cvg_outbound_failure",
                     output_channel=self,
                     sender_id=dialog_id,
                     input_channel=CHANNEL_NAME,
