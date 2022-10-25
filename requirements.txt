@@ -1,0 +1,2 @@
+rasa-sdk
+cvg-python-sdk>=0.4.2
