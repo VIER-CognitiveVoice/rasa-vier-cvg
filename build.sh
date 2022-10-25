@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env sh
 
-export VERSION="${1:-"0.1.0"}"
+set -eu
+
+export VERSION="${1:-}"
 python setup.py sdist
 python setup.py bdist_wheel
 

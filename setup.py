@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages  # noqa: H301
 import os
 
-if "VERSION" in os.environ:
+if "VERSION" in os.environ and len(os.environ["VERSION"]) > 0:
     version = os.environ["VERSION"]
 else:
     version = "0.0.1-devel"
