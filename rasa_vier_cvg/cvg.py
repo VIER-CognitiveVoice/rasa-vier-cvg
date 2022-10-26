@@ -46,16 +46,19 @@ def make_metadata(payload: Any) -> Dict[Text, Any]:
         "cvg_body": payload
     }
 
+
 @dataclass
 class Recipient:
     dialog_id: str
     project_token: str
     reseller_token: str
 
+
 def parse_recipient_id(recipient_id: Text) -> Recipient:
     parsed_json = json.loads(recipient_id)
     projectContext = parsed_json["projectContext"]
     return Recipient(parsed_json["dialogId"], projectContext["projectToken"], projectContext["resellerToken"])
+
 
 class CVGOutput(OutputChannel):
     """Output channel for the Cognitive Voice Gateway"""
