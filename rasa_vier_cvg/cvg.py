@@ -97,7 +97,8 @@ class CVGOutput(OutputChannel):
     ) -> None:
         logger.info("Sending message to cvg: %s" % text)
         logger.info("Ignoring the following args: " + str(kwargs))
-        self.call_api.say(SayParameters(dialog_id=recipient_id, text=text))
+        dialog_id = parse_recipient_id(recipient_id).dialog_id
+        self.call_api.say(SayParameters(dialog_id=dialog_id, text=text))
 
     async def _execute_operation_by_name(
         self,
