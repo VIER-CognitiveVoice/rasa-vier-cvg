@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+import json
 import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, Text
@@ -16,6 +18,7 @@ from rasa.core.channels.channel import InputChannel, OutputChannel, UserMessage
 from cvg_sdk.api_client import ApiClient
 from cvg_sdk.api.call_api import CallApi
 from cvg_sdk.api.assist_api import AssistApi
+from cvg_sdk.api.dialog_api import DialogApi
 from cvg_sdk.configuration import Configuration
 from cvg_sdk.model.say_parameters import SayParameters
 from cvg_sdk.model.drop_parameters import DropParameters
@@ -36,6 +39,8 @@ from cvg_sdk.model.assist_recording_start_parameters import AssistRecordingStart
 from cvg_sdk.model.assist_recording_stop_parameters import AssistRecordingStopParameters
 from cvg_sdk.model.outbound_call_result import OutboundCallResult
 
+from cvg_sdk.model.dialog_data_parameters import DialogDataParameters
+
 logger = logging.getLogger(__name__)
 
 CHANNEL_NAME = "vier-cvg"
@@ -46,6 +51,16 @@ def make_metadata(payload: Any) -> Dict[Text, Any]:
         "cvg_body": payload
     }
 
+@dataclass
+class Recipient:
+    dialog_id: str
+    project_token: str
+    reseller_token: str
+
+def parse_recipient_id(recipient_id: Text) -> Recipient:
+    parsed_json = json.loads(recipient_id)
+    projectContext = parsed_json["projectContext"]
+    return Recipient(parsed_json["dialogId"], projectContext["projectToken"], projectContext["resellerToken"])
 
 class CVGOutput(OutputChannel):
     """Output channel for the Cognitive Voice Gateway"""
@@ -72,6 +87,7 @@ class CVGOutput(OutputChannel):
         self.api_client = ApiClient(configuration=configuration)
         self.call_api = CallApi(self.api_client)
         self.assist_api = AssistApi(self.api_client)
+        self.dialog_api = DialogApi(self.api_client)
 
     async def send_text_message(
         self,
@@ -87,8 +103,11 @@ class CVGOutput(OutputChannel):
         self,
         operation_name: Text,
         body: Any,
-        dialog_id: Text,
+        recipient_id: Text,
     ):  # noqa: E501, F401
+        recipient = parse_recipient_id(recipient_id)
+        dialog_id = recipient.dialog_id
+        reseller_token = recipient.reseller_token
         # TODO parameter injection needs to be different per kind of operation
         def create_parameters(parameters_type: type):
             parameter_args = {}
@@ -96,7 +115,7 @@ class CVGOutput(OutputChannel):
                 python_name,
                 spec_name,
             ) in parameters_type.attribute_map.items():  # noqa: E501, F401
-                if spec_name in body:
+                if body != None and spec_name in body:
                     parameter_args[python_name] = body[spec_name]
                 elif spec_name == "dialogId":
                     parameter_args[python_name] = dialog_id
@@ -156,6 +175,10 @@ class CVGOutput(OutputChannel):
         elif operation_name == "cvg_inactivity_stop":
             self.call_api.stop_inactivity(create_parameters(InactivityStopParameters))
         # TODO: I don't think these work correctly with the current dialogId injection logic
+        elif operation_name == "cvg_dialog_data":
+            self.dialog_api.attach_custom_data(reseller_token, dialog_id, create_parameters(DialogDataParameters))
+        elif operation_name == "cvg_dialog_delete":
+            self.dialog_api.delete_dialog(reseller_token, dialog_id)
         elif operation_name == "cvg_assist_transcription_start":
             self.assist_api.start_transcription(create_parameters(TranscriptionStartParameters))
         elif operation_name == "cvg_assist_transcription_stop":
@@ -178,7 +201,7 @@ class CVGOutput(OutputChannel):
     ) -> None:
         logger.info("Received custom json: %s to %s" % (json_message, recipient_id))
         for key, value in json_message.items():
-            await self._execute_operation_by_name(operation_name=key, dialog_id=recipient_id, body=value)
+            await self._execute_operation_by_name(operation_name=key, recipient_id=recipient_id, body=value)
 
     async def send_image_url(self, **_: Any) -> None:
         # We do not support images.
@@ -264,6 +287,8 @@ class CVGInput(InputChannel):
                         return response.text("dialogId is required", status=400)
                     if json_body["callback"] is None:
                         return response.text("callback is required", status=400)
+                    if json_body["projectContext"] is None:
+                        return response.text("projectContext is required", status=400)
                     return await f(request, *args, **kwargs)
                 return decorated_function
             return decorator(func)
@@ -273,7 +298,10 @@ class CVGInput(InputChannel):
                 request,
                 on_new_message,
                 text=text,
-                sender_id=request.json["dialogId"],
+                sender_id=json.dumps({
+                    "dialogId": request.json["dialogId"],
+                    "projectContext": request.json["projectContext"],
+                })
             )
             
         cvg_webhook = Blueprint(
