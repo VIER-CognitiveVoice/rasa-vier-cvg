@@ -17,7 +17,6 @@ from rasa.core.channels.channel import InputChannel, OutputChannel, UserMessage
 
 from cvg_sdk.api_client import ApiClient
 from cvg_sdk.api.call_api import CallApi
-from cvg_sdk.api.assist_api import AssistApi
 from cvg_sdk.api.dialog_api import DialogApi
 from cvg_sdk.configuration import Configuration
 from cvg_sdk.model.say_parameters import SayParameters
@@ -33,10 +32,6 @@ from cvg_sdk.model.prompt_parameters import PromptParameters
 from cvg_sdk.model.inactivity_start_parameters import InactivityStartParameters  # noqa: E501, F401
 from cvg_sdk.model.inactivity_stop_parameters import InactivityStopParameters
 
-from cvg_sdk.model.transcription_start_parameters import TranscriptionStartParameters
-from cvg_sdk.model.transcription_stop_parameters import TranscriptionStopParameters
-from cvg_sdk.model.assist_recording_start_parameters import AssistRecordingStartParameters
-from cvg_sdk.model.assist_recording_stop_parameters import AssistRecordingStopParameters
 from cvg_sdk.model.outbound_call_result import OutboundCallResult
 
 from cvg_sdk.model.dialog_data_parameters import DialogDataParameters
@@ -86,7 +81,6 @@ class CVGOutput(OutputChannel):
 
         self.api_client = ApiClient(configuration=configuration)
         self.call_api = CallApi(self.api_client)
-        self.assist_api = AssistApi(self.api_client)
         self.dialog_api = DialogApi(self.api_client)
 
     async def send_text_message(
@@ -104,12 +98,9 @@ class CVGOutput(OutputChannel):
         self,
         operation_name: Text,
         body: Any,
-        recipient_id: Text,
+        dialog_id: Text,
+        reseller_token: Text,
     ):  # noqa: E501, F401
-        recipient = parse_recipient_id(recipient_id)
-        dialog_id = recipient.dialog_id
-        reseller_token = recipient.reseller_token
-        # TODO parameter injection needs to be different per kind of operation
         def create_parameters(parameters_type: type):
             parameter_args = {}
             for (
@@ -175,19 +166,10 @@ class CVGOutput(OutputChannel):
             self.call_api.start_inactivity(create_parameters(InactivityStartParameters))
         elif operation_name == "cvg_inactivity_stop":
             self.call_api.stop_inactivity(create_parameters(InactivityStopParameters))
-        # TODO: I don't think these work correctly with the current dialogId injection logic
         elif operation_name == "cvg_dialog_data":
             self.dialog_api.attach_custom_data(reseller_token, dialog_id, create_parameters(DialogDataParameters))
         elif operation_name == "cvg_dialog_delete":
             self.dialog_api.delete_dialog(reseller_token, dialog_id)
-        elif operation_name == "cvg_assist_transcription_start":
-            self.assist_api.start_transcription(create_parameters(TranscriptionStartParameters))
-        elif operation_name == "cvg_assist_transcription_stop":
-            self.assist_api.stop_transcription(create_parameters(TranscriptionStopParameters))
-        elif operation_name == "cvg_assist_recording_start":
-            self.assist_api.start_recording(create_parameters(AssistRecordingStartParameters))
-        elif operation_name == "cvg_assist_recording_stop":
-            self.assist_api.stop_recording(create_parameters(AssistRecordingStopParameters))
         else:
             logger.error(
                 "Operation %s not found/not implemented yet" % operation_name
@@ -201,8 +183,11 @@ class CVGOutput(OutputChannel):
         **kwargs: Any,  # noqa: E501, F401
     ) -> None:
         logger.info("Received custom json: %s to %s" % (json_message, recipient_id))
-        for key, value in json_message.items():
-            await self._execute_operation_by_name(operation_name=key, recipient_id=recipient_id, body=value)
+        recipient = parse_recipient_id(recipient_id)
+        dialog_id = recipient.dialog_id
+        reseller_token = recipient.reseller_token
+        for operation_name, body in json_message.items():
+            await self._execute_operation_by_name(operation_name, body, dialog_id, reseller_token)
 
     async def send_image_url(self, **_: Any) -> None:
         # We do not support images.
