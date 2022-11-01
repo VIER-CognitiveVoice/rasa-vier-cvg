@@ -101,9 +101,11 @@ class CVGOutput(OutputChannel):
         self,
         operation_name: Text,
         body: Any,
-        dialog_id: Text,
-        reseller_token: Text,
+        recipient_id: Text,
     ):  # noqa: E501, F401
+        recipient = parse_recipient_id(recipient_id)
+        dialog_id = recipient.dialog_id
+        reseller_token = recipient.reseller_token
         def create_parameters(parameters_type: type):
             parameter_args = {}
             for (
@@ -126,7 +128,7 @@ class CVGOutput(OutputChannel):
                 user_message = UserMessage(
                     text="/cvg_outbound_success",
                     output_channel=self,
-                    sender_id=dialog_id,
+                    sender_id=recipient_id,
                     input_channel=CHANNEL_NAME,
                     metadata=make_metadata(outbound_call_result.to_dict()),
                 )
@@ -134,7 +136,7 @@ class CVGOutput(OutputChannel):
                 user_message = UserMessage(
                     text="/cvg_outbound_failure",
                     output_channel=self,
-                    sender_id=dialog_id,
+                    sender_id=recipient_id,
                     input_channel=CHANNEL_NAME,
                     metadata=make_metadata(outbound_call_result.to_dict()),
                 )
@@ -186,11 +188,8 @@ class CVGOutput(OutputChannel):
         **kwargs: Any,  # noqa: E501, F401
     ) -> None:
         logger.info("Received custom json: %s to %s" % (json_message, recipient_id))
-        recipient = parse_recipient_id(recipient_id)
-        dialog_id = recipient.dialog_id
-        reseller_token = recipient.reseller_token
         for operation_name, body in json_message.items():
-            await self._execute_operation_by_name(operation_name, body, dialog_id, reseller_token)
+            await self._execute_operation_by_name(operation_name, body, recipient_id)
 
     async def send_image_url(self, **_: Any) -> None:
         # We do not support images.
