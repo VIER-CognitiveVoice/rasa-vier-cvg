@@ -216,13 +216,17 @@ class CVGInput(InputChannel):
         if token is None or type(token) != str or len(token) == 0:
             raise ValueError('No authentication token has been configured in your credentials.yml!')
         proxy = credentials.get("proxy")
+        start_intent = credentials.get("start_intent")
+        if start_intent == None:
+          start_intent = "/cvg_session"
 
-        return cls(token, proxy)
+        return cls(token, start_intent, proxy)
 
-    def __init__(self, token: Text, proxy: Optional[Text] = None) -> None:
+    def __init__(self, token: Text, start_intent: Text, proxy: Optional[Text] = None) -> None:
         self.callback = None
         self.expected_authorization_header_value = f"Bearer {token}"
         self.proxy = proxy
+        self.start_intent = start_intent
 
     async def process_message(
         self,
@@ -299,7 +303,7 @@ class CVGInput(InputChannel):
         @cvg_webhook.post("/session")
         @valid_request
         async def session(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_session")
+            return await process_message_oneline(request, self.start_intent)
         
         @cvg_webhook.post("/message")
         @valid_request
