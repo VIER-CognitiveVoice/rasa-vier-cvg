@@ -12,7 +12,7 @@ To build voice bots using Rasa and CVG use our VIER CVG channel provided in this
 
 This VIER CVG channel in Rasa implements all the CVG APIs relevant for bots to provide CVGs full power to you as a Rasa developer. 
 
-The following APIs are part of the outgoing channel (from a bot perspective): [Call API](https://cognitivevoice.io/specs/?urls.primaryName=Call API), [Dialog API](https://cognitivevoice.io/specs/?urls.primaryName=Dialog%20API), [Assist API](https://cognitivevoice.io/specs/?urls.primaryName=Assist%20API), [Health API](https://cognitivevoice.io/specs/?urls.primaryName=Health%20API), [Recording API](https://cognitivevoice.io/specs/?urls.primaryName=Recording%20API).
+The following APIs are part of the outgoing channel (from a bot perspective): [Call API](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API), [Dialog API](https://cognitivevoice.io/specs/?urls.primaryName=Dialog%20API), [Assist API](https://cognitivevoice.io/specs/?urls.primaryName=Assist%20API), [Health API](https://cognitivevoice.io/specs/?urls.primaryName=Health%20API), [Recording API](https://cognitivevoice.io/specs/?urls.primaryName=Recording%20API).
 
 The [Bot API](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20(Client)) is part the incoming channel (from a bot perspective). 
 
