@@ -167,9 +167,9 @@ class CVGOutput(OutputChannel):
             self.call_api.say(create_parameters(SayParameters))
         elif operation_name == "cvg_call_prompt":
             self.call_api.prompt(create_parameters(PromptParameters))
-        elif operation_name == "cvg_inactivity_start":
+        elif operation_name == "cvg_call_inactivity_start":
             self.call_api.start_inactivity(create_parameters(InactivityStartParameters))
-        elif operation_name == "cvg_inactivity_stop":
+        elif operation_name == "cvg_call_inactivity_stop":
             self.call_api.stop_inactivity(create_parameters(InactivityStopParameters))
         elif operation_name == "cvg_dialog_data":
             self.dialog_api.attach_custom_data(reseller_token, dialog_id, create_parameters(DialogDataParameters))
