@@ -47,6 +47,8 @@ rasa_vier_cvg.CVGInput:
 
 To configure the connection between your Rasa bot and [CVG](https://cognitivevoice.io) just select Rasa as the bot template, enter your Rasa URL (something like "https://myrasabot.mycompany.ai/webhooks/vier-cvg") and your token as set in credentials.aml in the CVG project settings. That's it.
 
+![Configuring a Rasa project in CVG](https://github.com/VIER-CognitiveVoice/rasa-vier-cvg/blob/master/CVG-UI-configuring-a-rasa-project.png)
+
 ### Using the VIER CVG Channel in Rasa
 
 The following APIs are part of the outgoing channel (from a bot perspective): [Call API](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API), [Dialog API](https://cognitivevoice.io/specs/?urls.primaryName=Dialog%20API), [Assist API](https://cognitivevoice.io/specs/?urls.primaryName=Assist%20API), [Health API](https://cognitivevoice.io/specs/?urls.primaryName=Health%20API), [Recording API](https://cognitivevoice.io/specs/?urls.primaryName=Recording%20API).
