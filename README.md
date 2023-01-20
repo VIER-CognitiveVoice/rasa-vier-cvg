@@ -43,6 +43,8 @@ rasa_vier_cvg.CVGInput:
 
 ### Configuring CVG
 
+If you do not yet have an account for CVG please contact us at <mailto:info@vier.ai>.
+
 ![conversational-ai-rasa](https://user-images.githubusercontent.com/42033366/192627897-cc2ec42e-0bf4-4c91-bcf9-242a6077b609.PNG)
 
 To configure the connection between your Rasa bot and [CVG](https://cognitivevoice.io) just select Rasa as the bot template, enter your Rasa URL (something like "https://myrasabot.mycompany.ai/webhooks/vier-cvg") and your token as set in credentials.aml in the CVG project settings. That's it.
