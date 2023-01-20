@@ -24,6 +24,14 @@ The easiest way to install this package is through PyPI.
 pip install rasa-vier-cvg
 ```
 
+#### Docker
+
+If you are using Rasa on Docker and you don't want to build a derived image, you can also download the [channel source](https://github.com/VIER-CognitiveVoice/rasa-vier-cvg/) and bind-mount the package into a `rasa/rasa`-base container with a volume definition like this:
+
+```
+./rasa_vier_cvg:/opt/venv/lib/python3.8/site-packages/rasa_vier_cvg
+```
+
 ### Configure Rasa
 
 Add the following content to `credentials.yml`:
@@ -46,5 +54,7 @@ The following APIs are part of the outgoing channel (from a bot perspective): [C
 The [Bot API](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20(Client)) is part the incoming channel (from a bot perspective). 
 
 ### More Information
+
+See and try our [little sample voicebot](https://github.com/VIER-CognitiveVoice/rasa-meter-reading-bot) built with CVG and Rasa to go into more details.
 
 Find more information on our Rasa integration and how to build voicebots with Rasa and CVG in our [docs](https://cognitivevoice.io/docs/conversational-ai/conversational-ai-rasa.html).
