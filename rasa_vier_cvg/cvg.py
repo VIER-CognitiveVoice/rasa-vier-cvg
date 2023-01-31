@@ -1,8 +1,9 @@
+import copy
 from dataclasses import dataclass
 import json
 import logging
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, Optional, Text
+from typing import Any, Awaitable, Callable, Dict, Optional, Text, Tuple
 import warnings
 
 # ignore ResourceWarning, InsecureRequestWarning
@@ -17,29 +18,14 @@ from rasa.core.channels.channel import InputChannel, OutputChannel, UserMessage
 
 from cvg_sdk.api_client import ApiClient
 from cvg_sdk.api.call_api import CallApi
-from cvg_sdk.api.dialog_api import DialogApi
 from cvg_sdk.configuration import Configuration
 from cvg_sdk.model.say_parameters import SayParameters
-from cvg_sdk.model.drop_parameters import DropParameters
-from cvg_sdk.model.recording_start_parameters import RecordingStartParameters
-from cvg_sdk.model.recording_stop_parameters import RecordingStopParameters
-from cvg_sdk.model.play_parameters import PlayParameters
-from cvg_sdk.model.transcription_switch_parameters import TranscriptionSwitchParameters
-from cvg_sdk.model.bridge_parameters import BridgeParameters
-from cvg_sdk.model.forward_parameters import ForwardParameters
-from cvg_sdk.model.prompt_parameters import PromptParameters
-
-from cvg_sdk.model.inactivity_start_parameters import InactivityStartParameters  # noqa: E501, F401
-from cvg_sdk.model.inactivity_stop_parameters import InactivityStopParameters
 
 from cvg_sdk.model.outbound_call_result import OutboundCallResult
-
-from cvg_sdk.model.dialog_data_parameters import DialogDataParameters
 
 logger = logging.getLogger(__name__)
 
 CHANNEL_NAME = "vier-cvg"
-
 
 def make_metadata(payload: Any) -> Dict[Text, Any]:
     return {
@@ -84,7 +70,6 @@ class CVGOutput(OutputChannel):
 
         self.api_client = ApiClient(configuration=configuration)
         self.call_api = CallApi(self.api_client)
-        self.dialog_api = DialogApi(self.api_client)
 
     async def send_text_message(
         self,
@@ -106,22 +91,6 @@ class CVGOutput(OutputChannel):
         recipient = parse_recipient_id(recipient_id)
         dialog_id = recipient.dialog_id
         reseller_token = recipient.reseller_token
-        def create_parameters(parameters_type: type):
-            parameter_args = {}
-            for (
-                python_name,
-                spec_name,
-            ) in parameters_type.attribute_map.items():  # noqa: E501, F401
-                if body != None and spec_name in body:
-                    parameter_args[python_name] = body[spec_name]
-                elif spec_name == "dialogId":
-                    parameter_args[python_name] = dialog_id
-                else:
-                    logger.info(
-                        "Parameter %s for endpoint %s not set."
-                        % (spec_name, parameters_type.__name__)
-                    )  # noqa: E501, F401
-            return parameters_type(**parameter_args)
 
         async def handle_outbound_call_result(outbound_call_result: OutboundCallResult):
             if outbound_call_result.status == "Success":
@@ -149,32 +118,25 @@ class CVGOutput(OutputChannel):
             )
             await self.on_message(user_message)
 
-        if operation_name == "cvg_call_drop":
-            self.call_api.drop(create_parameters(DropParameters))
-        elif operation_name == "cvg_call_recording_start":
-            self.call_api.start_recording(create_parameters(RecordingStartParameters))
-        elif operation_name == "cvg_call_recording_stop":
-            self.call_api.stop_recording(create_parameters(RecordingStopParameters))
-        elif operation_name == "cvg_call_play":
-            self.call_api.play(create_parameters(PlayParameters))
-        elif operation_name == "cvg_call_transcription_switch":
-            self.call_api.switch_transcription(create_parameters(TranscriptionSwitchParameters))
-        elif operation_name == "cvg_call_bridge":
-            await handle_outbound_call_result(self.call_api.bridge(create_parameters(BridgeParameters)))
-        elif operation_name == "cvg_call_forward":
-            await handle_outbound_call_result(self.call_api.forward(create_parameters(ForwardParameters)))
-        elif operation_name == "cvg_call_say":
-            self.call_api.say(create_parameters(SayParameters))
-        elif operation_name == "cvg_call_prompt":
-            self.call_api.prompt(create_parameters(PromptParameters))
-        elif operation_name == "cvg_call_inactivity_start":
-            self.call_api.start_inactivity(create_parameters(InactivityStartParameters))
-        elif operation_name == "cvg_call_inactivity_stop":
-            self.call_api.stop_inactivity(create_parameters(InactivityStopParameters))
-        elif operation_name == "cvg_dialog_data":
-            self.dialog_api.attach_custom_data(reseller_token, dialog_id, create_parameters(DialogDataParameters))
-        elif operation_name == "cvg_dialog_delete":
-            self.dialog_api.delete_dialog(reseller_token, dialog_id)
+        if operation_name.startswith("cvg_"):
+            newBody = copy.deepcopy(body)
+            if "dialogId" not in body:
+              newBody["dialogId"] = dialog_id
+            path = operation_name[3:].replace("_", "/")
+
+            # Handle special cases
+            if operation_name == "cvg_dialog_delete":
+              return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}", "DELETE", body=newBody)
+            elif operation_name == "cvg_dialog_data":
+              path = f"/dialog/{reseller_token}/{dialog_id}/data"
+            
+            handle_result_outbound_call_result_for = ["cvg_call_forward", "cvg_call_bridge"]
+            if operation_name in handle_result_outbound_call_result_for:
+              return await handle_outbound_call_result(
+                self.api_client.call_api(path, "POST", body=newBody, response_type=(OutboundCallResult,))[0]
+              )
+
+            return self.api_client.call_api(path, "POST", body=newBody)
         else:
             logger.error(
                 "Operation %s not found/not implemented yet" % operation_name
@@ -191,7 +153,7 @@ class CVGOutput(OutputChannel):
         for operation_name, body in json_message.items():
             await self._execute_operation_by_name(operation_name, body, recipient_id)
 
-    async def send_image_url(self, **_: Any) -> None:
+    async def send_image_url(self, **kwargs: Any) -> None:
         # We do not support images.
         rasa.shared.utils.io.raise_warning(
             "Ignoring image URL."
@@ -255,7 +217,7 @@ class CVGInput(InputChannel):
 
             await on_new_message(user_msg)
         except Exception as e:
-            logger.error(f"Exception when trying to handle message.{e}")
+            logger.error(f"Exception when trying to handle message: {e}")
             logger.error(str(e), exc_info=True)
 
         return response.text("")
