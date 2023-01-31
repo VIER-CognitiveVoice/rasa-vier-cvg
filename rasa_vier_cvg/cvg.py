@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import json
 import logging
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, Optional, Text, Tuple
+from typing import Any, Awaitable, Callable, Dict, Optional, Text
 import warnings
 
 # ignore ResourceWarning, InsecureRequestWarning
@@ -118,18 +118,15 @@ class CVGOutput(OutputChannel):
             )
             await self.on_message(user_message)
 
-        if operation_name.startswith("cvg_"):
-            newBody = copy.deepcopy(body)
+        newBody = copy.deepcopy(body)
+        if newBody is None:
+          newBody = {}
+        path = operation_name[3:].replace("_", "/")
+        if operation_name.startswith("cvg_call_"):
             if "dialogId" not in body:
               newBody["dialogId"] = dialog_id
-            path = operation_name[3:].replace("_", "/")
 
-            # Handle special cases
-            if operation_name == "cvg_dialog_delete":
-              return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}", "DELETE", body=newBody)
-            elif operation_name == "cvg_dialog_data":
-              path = f"/dialog/{reseller_token}/{dialog_id}/data"
-            
+            # The response from forward and bridge must be handled
             handle_result_outbound_call_result_for = ["cvg_call_forward", "cvg_call_bridge"]
             if operation_name in handle_result_outbound_call_result_for:
               return await handle_outbound_call_result(
@@ -137,9 +134,16 @@ class CVGOutput(OutputChannel):
               )
 
             return self.api_client.call_api(path, "POST", body=newBody)
+        elif operation_name.startswith("cvg_dialog_"):
+            if operation_name == "cvg_dialog_delete":
+              return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}", "DELETE", body=newBody)
+            elif operation_name == "cvg_dialog_data":
+              return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}/data", "POST", body=newBody)
+            else:
+              logger.error(f"Dialog operation {operation_name} not found/not implemented yet. Please consider using the cvg-python-sdk in one of your actions.")
         else:
             logger.error(
-                "Operation %s not found/not implemented yet" % operation_name
+                f"Operation {operation_name} not found/not implemented yet"
             )  # noqa: E501, F401
         logger.info("Ran operation: " + operation_name)
 
@@ -149,11 +153,11 @@ class CVGOutput(OutputChannel):
         json_message: Dict[Text, Any],
         **kwargs: Any,  # noqa: E501, F401
     ) -> None:
-        logger.info("Received custom json: %s to %s" % (json_message, recipient_id))
+        logger.info(f"Received custom json: {json_message} to {recipient_id}")
         for operation_name, body in json_message.items():
             await self._execute_operation_by_name(operation_name, body, recipient_id)
 
-    async def send_image_url(self, **kwargs: Any) -> None:
+    async def send_image_url(*args: Any, **kwargs: Any) -> None:
         # We do not support images.
         rasa.shared.utils.io.raise_warning(
             "Ignoring image URL."
