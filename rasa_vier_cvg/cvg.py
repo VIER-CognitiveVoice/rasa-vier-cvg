@@ -1,3 +1,4 @@
+import asyncio
 import copy
 from dataclasses import dataclass
 import json
@@ -27,11 +28,7 @@ logger = logging.getLogger(__name__)
 
 CHANNEL_NAME = "vier-cvg"
 
-def make_metadata(payload: Any) -> Dict[Text, Any]:
-    return {
-        "cvg_body": payload
-    }
-
+make_metadata = lambda payload: { "cvg_body": payload }
 
 @dataclass
 class Recipient:
@@ -129,8 +126,9 @@ class CVGOutput(OutputChannel):
             # The response from forward and bridge must be handled
             handle_result_outbound_call_result_for = ["cvg_call_forward", "cvg_call_bridge"]
             if operation_name in handle_result_outbound_call_result_for:
-              return await handle_outbound_call_result(
-                self.api_client.call_api(path, "POST", body=newBody, response_type=(OutboundCallResult,))[0]
+              # The request must be async: We cannot trigger another intent, while the send_ function of OutputChannel is not finished yet. (conversation is locked)
+              self.api_client.pool.apply_async(self.api_client.call_api, (path, "POST"), { 'body': newBody, 'response_type': (OutboundCallResult,) },
+                callback=lambda result: asyncio.run(handle_outbound_call_result(result[0]))
               )
 
             return self.api_client.call_api(path, "POST", body=newBody)
