@@ -2,6 +2,7 @@ import asyncio
 import copy
 from dataclasses import dataclass
 import json
+import base64
 import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, Text
@@ -38,7 +39,7 @@ class Recipient:
 
 
 def parse_recipient_id(recipient_id: Text) -> Recipient:
-    parsed_json = json.loads(recipient_id)
+    parsed_json = json.loads(base64.b64decode(bytes(recipient_id, 'utf-8')).decode('utf-8'))
     projectContext = parsed_json["projectContext"]
     return Recipient(parsed_json["dialogId"], projectContext["projectToken"], projectContext["resellerToken"])
 
@@ -250,14 +251,17 @@ class CVGInput(InputChannel):
             return decorator(func)
 
         async def process_message_oneline(request: Request, text: Text):
+            sender_id_json=json.dumps({
+                "dialogId": request.json["dialogId"],
+                "projectContext": request.json["projectContext"],
+            })
+            sender_id_base64=base64.b64encode(bytes(sender_id_json, 'utf-8')).decode('utf-8')
+
             return await self.process_message(
                 request,
                 on_new_message,
                 text=text,
-                sender_id=json.dumps({
-                    "dialogId": request.json["dialogId"],
-                    "projectContext": request.json["projectContext"],
-                })
+                sender_id=sender_id_base64,
             )
             
         cvg_webhook = Blueprint(
