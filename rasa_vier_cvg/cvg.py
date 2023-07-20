@@ -55,12 +55,7 @@ class CVGOutput(OutputChannel):
     def name(cls) -> Text:
         return CHANNEL_NAME
 
-    def __init__(
-        self,
-        callback_base_url: Text,
-        on_message: Callable[[UserMessage], Awaitable[Any]],
-        proxy: Optional[Text] = None,
-    ) -> None:  # noqa: E501, F401
+    def __init__(self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], proxy: Optional[Text] = None) -> None:
         configuration = Configuration.get_default_copy()
         configuration.host = callback_base_url
         configuration.proxy = proxy
@@ -71,12 +66,7 @@ class CVGOutput(OutputChannel):
         self.api_client = ApiClient(configuration=configuration)
         self.call_api = CallApi(self.api_client)
 
-    async def send_text_message(
-        self,
-        recipient_id: Text,
-        text: Text,
-        **kwargs: Any,
-    ) -> None:
+    async def send_text_message(self, recipient_id: Text, text: Text, **kwargs: Any) -> None:
         logger.info(f"Sending message to cvg: {text}")
         logger.info(f"Ignoring the following args: {str(kwargs)}")
         dialog_id = parse_recipient_id(recipient_id).dialog_id
@@ -141,12 +131,7 @@ class CVGOutput(OutputChannel):
             return
         logger.info(f"Ran operation: {operation_name}")
 
-    async def send_custom_json(
-        self,
-        recipient_id: Text,
-        json_message: Dict[Text, Any],
-        **kwargs: Any,  # noqa: E501, F401
-    ) -> None:
+    async def send_custom_json(self, recipient_id: Text, json_message: Dict[Text, Any], **kwargs: Any) -> None:
         logger.info(f"Received custom json: {json_message} to {recipient_id}")
         for operation_name, body in json_message.items():
             if operation_name.startswith(OPERATION_PREFIX):
@@ -168,9 +153,7 @@ class CVGInput(InputChannel):
         return CHANNEL_NAME
 
     @classmethod
-    def from_credentials(
-        cls, credentials: Optional[Dict[Text, Any]]
-    ) -> InputChannel:
+    def from_credentials(cls, credentials: Optional[Dict[Text, Any]]) -> InputChannel:
         if not credentials:
             cls.raise_missing_credentials_exception()
         token = credentials.get("token")
@@ -189,13 +172,7 @@ class CVGInput(InputChannel):
         self.proxy = proxy
         self.start_intent = start_intent
 
-    async def process_message(
-        self,
-        request: Request,
-        on_new_message: Callable[[UserMessage], Awaitable[Any]],
-        text: Text,
-        sender_id: Optional[Text],
-    ) -> Any:
+    async def process_message(self, request: Request, on_new_message: Callable[[UserMessage], Awaitable[Any]], text: Text, sender_id: Optional[Text]) -> Any:
         try:
             if text[-1] == ".":
                 text = text[:-1]
@@ -209,10 +186,7 @@ class CVGInput(InputChannel):
                 metadata=metadata,
             )
 
-            logger.info(
-                "Creating incoming UserMessage: {text=%s, output_channel=%s, sender_id=%s, metadata=%s}"  # noqa: E501, F401
-                % (text, user_msg.output_channel, sender_id, metadata)
-            )
+            logger.info(f"Creating incoming UserMessage: text={text}, output_channel={user_msg.output_channel}, sender_id={sender_id}, metadata={metadata}")
 
             await on_new_message(user_msg)
         except Exception as e:
@@ -221,9 +195,7 @@ class CVGInput(InputChannel):
 
         return response.text("")
 
-    def blueprint(
-        self, on_new_message: Callable[[UserMessage], Awaitable[Any]]
-    ) -> Blueprint:
+    def blueprint(self, on_new_message: Callable[[UserMessage], Awaitable[Any]]) -> Blueprint:
         def valid_request(func):
             def decorator(f):
                 @wraps(f)
