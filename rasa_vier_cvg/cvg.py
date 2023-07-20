@@ -5,7 +5,7 @@ import json
 import base64
 import logging
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, Optional, Text
+from typing import Any, Awaitable, Callable, Dict, Optional, Text, TypeVar
 import warnings
 
 # ignore ResourceWarning, InsecureRequestWarning
@@ -31,7 +31,12 @@ CHANNEL_NAME = "vier-cvg"
 OPERATION_PREFIX = "cvg_"
 DIALOG_ID_FIELD = "dialogId"
 
-make_metadata = lambda payload: { "cvg_body": payload }
+T = TypeVar('T')
+
+
+def make_metadata(payload: T) -> Dict[str, T]:
+    return {"cvg_body": payload}
+
 
 @dataclass
 class Recipient:
@@ -42,8 +47,8 @@ class Recipient:
 
 def parse_recipient_id(recipient_id: Text) -> Recipient:
     parsed_json = json.loads(base64.b64decode(bytes(recipient_id, 'utf-8')).decode('utf-8'))
-    projectContext = parsed_json["projectContext"]
-    return Recipient(parsed_json["dialogId"], projectContext["projectToken"], projectContext["resellerToken"])
+    project_context = parsed_json["projectContext"]
+    return Recipient(parsed_json["dialogId"], project_context["projectToken"], project_context["resellerToken"])
 
 
 class CVGOutput(OutputChannel):
@@ -100,7 +105,7 @@ class CVGOutput(OutputChannel):
             logger.info(f"Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
             await self.on_message(user_message)
 
-        if newBody is None:
+        if body is None:
             newBody = {}
         else:
             newBody = copy.deepcopy(body)
@@ -114,7 +119,7 @@ class CVGOutput(OutputChannel):
             handle_result_outbound_call_result_for = ["call_forward", "call_bridge"]
             if operation_name in handle_result_outbound_call_result_for:
                 # The request must be async: We cannot trigger another intent, while the send_ function of OutputChannel is not finished yet. (conversation is locked)
-                self.api_client.pool.apply_async(self.api_client.call_api, (path, "POST"), { 'body': newBody, 'response_type': (OutboundCallResult,) },
+                self.api_client.pool.apply_async(self.api_client.call_api, (path, "POST"), {'body': newBody, 'response_type': (OutboundCallResult,)},
                     callback=lambda result: asyncio.run(handle_outbound_call_result(result[0]))
                 )
 
@@ -144,6 +149,7 @@ class CVGOutput(OutputChannel):
             "We cannot represent images as a voice bot."
             "Please define a voice-friendly alternative."
         )
+
 
 class CVGInput(InputChannel):
     """Input channel for the Cognitive Voice Gateway"""
