@@ -28,6 +28,8 @@ from cvg_sdk.model.outbound_call_result import OutboundCallResult
 logger = logging.getLogger(__name__)
 
 CHANNEL_NAME = "vier-cvg"
+OPERATION_PREFIX = "cvg_"
+DIALOG_ID_FIELD = "dialogId"
 
 make_metadata = lambda payload: { "cvg_body": payload }
 
@@ -75,17 +77,12 @@ class CVGOutput(OutputChannel):
         text: Text,
         **kwargs: Any,
     ) -> None:
-        logger.info("Sending message to cvg: %s" % text)
-        logger.info("Ignoring the following args: " + str(kwargs))
+        logger.info(f"Sending message to cvg: {text}")
+        logger.info(f"Ignoring the following args: {str(kwargs)}")
         dialog_id = parse_recipient_id(recipient_id).dialog_id
         self.call_api.say(SayParameters(dialog_id=dialog_id, text=text))
 
-    async def _execute_operation_by_name(
-        self,
-        operation_name: Text,
-        body: Any,
-        recipient_id: Text,
-    ):  # noqa: E501, F401
+    async def _execute_operation_by_name(self, operation_name: Text, body: Any, recipient_id: Text):
         recipient = parse_recipient_id(recipient_id)
         dialog_id = recipient.dialog_id
         reseller_token = recipient.reseller_token
@@ -110,41 +107,39 @@ class CVGOutput(OutputChannel):
             else:
                 return response.text(f"Invalid OutboundCallResult status: {outbound_call_result.status}", status=400)
 
-            logger.info(
-                "Creating incoming UserMessage: {text=%s, output_channel=%s, sender_id=%s, metadata=%s}"  # noqa: E501, F401
-                % (user_message.text, user_message.output_channel, user_message.sender_id, user_message.metadata)  # noqa: E501, F401
-            )
+            logger.info(f"Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
             await self.on_message(user_message)
 
-        newBody = copy.deepcopy(body)
         if newBody is None:
-          newBody = {}
-        path = operation_name[3:].replace("_", "/")
-        if operation_name.startswith("cvg_call_"):
-            if "dialogId" not in body:
-              newBody["dialogId"] = dialog_id
+            newBody = {}
+        else:
+            newBody = copy.deepcopy(body)
+            
+        path = operation_name.replace("_", "/")
+        if operation_name.startswith("call_"):
+            if DIALOG_ID_FIELD not in body:
+                newBody[DIALOG_ID_FIELD] = dialog_id
 
             # The response from forward and bridge must be handled
-            handle_result_outbound_call_result_for = ["cvg_call_forward", "cvg_call_bridge"]
+            handle_result_outbound_call_result_for = ["call_forward", "call_bridge"]
             if operation_name in handle_result_outbound_call_result_for:
-              # The request must be async: We cannot trigger another intent, while the send_ function of OutputChannel is not finished yet. (conversation is locked)
-              self.api_client.pool.apply_async(self.api_client.call_api, (path, "POST"), { 'body': newBody, 'response_type': (OutboundCallResult,) },
-                callback=lambda result: asyncio.run(handle_outbound_call_result(result[0]))
-              )
+                # The request must be async: We cannot trigger another intent, while the send_ function of OutputChannel is not finished yet. (conversation is locked)
+                self.api_client.pool.apply_async(self.api_client.call_api, (path, "POST"), { 'body': newBody, 'response_type': (OutboundCallResult,) },
+                    callback=lambda result: asyncio.run(handle_outbound_call_result(result[0]))
+                )
 
-            return self.api_client.call_api(path, "POST", body=newBody)
-        elif operation_name.startswith("cvg_dialog_"):
-            if operation_name == "cvg_dialog_delete":
-              return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}", "DELETE", body=newBody)
-            elif operation_name == "cvg_dialog_data":
-              return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}/data", "POST", body=newBody)
+                return self.api_client.call_api(path, "POST", body=newBody)
+        elif operation_name.startswith("dialog_"):
+            if operation_name == "dialog_delete":
+                return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}", "DELETE", body=newBody)
+            elif operation_name == "dialog_data":
+                return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}/data", "POST", body=newBody)
             else:
-              logger.error(f"Dialog operation {operation_name} not found/not implemented yet. Please consider using the cvg-python-sdk in one of your actions.")
+                logger.error(f"Dialog operation {operation_name} not found/not implemented yet. Consider using the cvg-python-sdk in your actions.")
         else:
-            logger.error(
-                f"Operation {operation_name} not found/not implemented yet"
-            )  # noqa: E501, F401
-        logger.info("Ran operation: " + operation_name)
+            logger.error(f"Operation {operation_name} not found/not implemented yet. Consider using custom code in your actions.")
+            return
+        logger.info(f"Ran operation: {operation_name}")
 
     async def send_custom_json(
         self,
@@ -154,7 +149,8 @@ class CVGOutput(OutputChannel):
     ) -> None:
         logger.info(f"Received custom json: {json_message} to {recipient_id}")
         for operation_name, body in json_message.items():
-            await self._execute_operation_by_name(operation_name, body, recipient_id)
+            if operation_name.startswith(OPERATION_PREFIX):
+                await self._execute_operation_by_name(operation_name.removeprefix(OPERATION_PREFIX), body, recipient_id)
 
     async def send_image_url(*args: Any, **kwargs: Any) -> None:
         # We do not support images.
