@@ -20,7 +20,7 @@ setup(
     python_requires=">=3.6",
     install_requires=[
         'rasa-sdk',
-        'cvg-python-sdk>=0.5.1',
+        'aiohttp',
     ],
     packages=find_packages(),
     include_package_data=True,

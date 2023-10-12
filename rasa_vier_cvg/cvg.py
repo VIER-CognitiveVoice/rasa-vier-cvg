@@ -1,4 +1,3 @@
-import asyncio
 import copy
 from dataclasses import dataclass
 import json
@@ -7,6 +6,7 @@ import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, Text, TypeVar
 import warnings
+import aiohttp
 
 # ignore ResourceWarning, InsecureRequestWarning
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -17,13 +17,6 @@ from sanic.response import HTTPResponse
 
 import rasa.shared.utils.io
 from rasa.core.channels.channel import InputChannel, OutputChannel, UserMessage
-
-from cvg_sdk.api_client import ApiClient
-from cvg_sdk.api.call_api import CallApi
-from cvg_sdk.configuration import Configuration
-from cvg_sdk.model.say_parameters import SayParameters
-
-from cvg_sdk.model.outbound_call_result import OutboundCallResult
 
 logger = logging.getLogger(__name__)
 
@@ -55,55 +48,81 @@ class CVGOutput(OutputChannel):
     """Output channel for the Cognitive Voice Gateway"""
 
     on_message: Callable[[UserMessage], Awaitable[Any]]
+    base_url: str
+    proxy: Optional[str]
 
     @classmethod
     def name(cls) -> Text:
         return CHANNEL_NAME
 
-    def __init__(self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], proxy: Optional[Text] = None) -> None:
-        configuration = Configuration.get_default_copy()
-        configuration.host = callback_base_url
-        configuration.proxy = proxy
-        configuration.verify_ssl = False
-
+    def __init__(self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], proxy: Optional[str] = None) -> None:
         self.on_message = on_message
 
-        self.api_client = ApiClient(configuration=configuration)
-        self.call_api = CallApi(self.api_client)
+        self.base_url = callback_base_url.rstrip('/')
+        self.proxy = proxy
+
+    async def _perform_request(self, path: str, method: str = "POST", data: Optional[any] = None) -> (int, Any):
+        async with aiohttp.request(method, f"{self.base_url}{path}", json=data) as res:
+            return res.status, await res.json()
+
+    async def _say(self, dialog_id: str, text: str):
+        return await self._perform_request("/call/say", data={"dialog_id": dialog_id, "text": text})
 
     async def send_text_message(self, recipient_id: Text, text: Text, **kwargs: Any) -> None:
         logger.info(f"Sending message to cvg: {text}")
         logger.info(f"Ignoring the following args: {str(kwargs)}")
         dialog_id = parse_recipient_id(recipient_id).dialog_id
-        self.call_api.say(SayParameters(dialog_id=dialog_id, text=text))
+        await self._say(dialog_id, text)
+
+    async def _handle_refer_result(self, status_code: int, result: Dict, recipient_id: Text):
+        if 200 <= status_code < 300:
+            logger.info(f"Refer request succeeded: {status_code} with body {result}")
+            return
+
+        user_message = UserMessage(
+            text="/cvg_refer_failure",
+            output_channel=self,
+            sender_id=recipient_id,
+            input_channel=CHANNEL_NAME,
+            metadata=make_metadata(result),
+        )
+
+        logger.info(f"Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
+        await self.on_message(user_message)
+
+    async def handle_bridge_result(self, status_code: int, result: Dict, recipient_id: Text):
+        if not 200 <= status_code < 300:
+            logger.info(f"Bridge request failed: {status_code} with body {result}")
+            return
+
+        status = result["status"]
+        if status == "Success":
+            user_message = UserMessage(
+                text="/cvg_outbound_success",
+                output_channel=self,
+                sender_id=recipient_id,
+                input_channel=CHANNEL_NAME,
+                metadata=make_metadata(result),
+            )
+        elif status == "Failure":
+            user_message = UserMessage(
+                text="/cvg_outbound_failure",
+                output_channel=self,
+                sender_id=recipient_id,
+                input_channel=CHANNEL_NAME,
+                metadata=make_metadata(result),
+            )
+        else:
+            logger.info(f"Invalid bridge result: {status}")
+            return
+
+        logger.info(f"Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
+        await self.on_message(user_message)
 
     async def _execute_operation_by_name(self, operation_name: Text, body: Any, recipient_id: Text):
         recipient = parse_recipient_id(recipient_id)
         dialog_id = recipient.dialog_id
         reseller_token = recipient.reseller_token
-
-        async def handle_outbound_call_result(outbound_call_result: OutboundCallResult):
-            if outbound_call_result.status == "Success":
-                user_message = UserMessage(
-                    text="/cvg_outbound_success",
-                    output_channel=self,
-                    sender_id=recipient_id,
-                    input_channel=CHANNEL_NAME,
-                    metadata=make_metadata(outbound_call_result.to_dict()),
-                )
-            elif outbound_call_result.status == "Failure":
-                user_message = UserMessage(
-                    text="/cvg_outbound_failure",
-                    output_channel=self,
-                    sender_id=recipient_id,
-                    input_channel=CHANNEL_NAME,
-                    metadata=make_metadata(outbound_call_result.to_dict()),
-                )
-            else:
-                return response.text(f"Invalid OutboundCallResult status: {outbound_call_result.status}", status=400)
-
-            logger.info(f"Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
-            await self.on_message(user_message)
 
         if body is None:
             newBody = {}
@@ -115,20 +134,19 @@ class CVGOutput(OutputChannel):
             if DIALOG_ID_FIELD not in body:
                 newBody[DIALOG_ID_FIELD] = dialog_id
 
+            status_code, response_body = await self._perform_request(path, data=newBody)
+
             # The response from forward and bridge must be handled
             handle_result_outbound_call_result_for = ["call_forward", "call_bridge"]
             if operation_name in handle_result_outbound_call_result_for:
-                # The request must be async: We cannot trigger another intent, while the send_ function of OutputChannel is not finished yet. (conversation is locked)
-                self.api_client.pool.apply_async(self.api_client.call_api, (path, "POST"), {'body': newBody, 'response_type': (OutboundCallResult,)},
-                    callback=lambda result: asyncio.run(handle_outbound_call_result(result[0]))
-                )
-
-                return self.api_client.call_api(path, "POST", body=newBody)
+                return self._handle_bridge_result(status_code, response_body)
+            elif operation_name == 'call_refer':
+                return self._handle_refer_result(status_code, response_body)
         elif operation_name.startswith("dialog_"):
             if operation_name == "dialog_delete":
-                return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}", "DELETE", body=newBody)
+                return self._perform_request(f"/dialog/{reseller_token}/{dialog_id}", method="DELETE", data=newBody)
             elif operation_name == "dialog_data":
-                return self.api_client.call_api(f"/dialog/{reseller_token}/{dialog_id}/data", "POST", body=newBody)
+                return self._perform_request(f"/dialog/{reseller_token}/{dialog_id}/data", data=newBody)
             else:
                 logger.error(f"Dialog operation {operation_name} not found/not implemented yet. Consider using the cvg-python-sdk in your actions.")
         else:
@@ -199,7 +217,7 @@ class CVGInput(InputChannel):
             logger.error(f"Exception when trying to handle message: {e}")
             logger.error(str(e), exc_info=True)
 
-        return response.text("")
+        return response.empty(204)
 
     def blueprint(self, on_new_message: Callable[[UserMessage], Awaitable[Any]]) -> Blueprint:
         def valid_request(func):
