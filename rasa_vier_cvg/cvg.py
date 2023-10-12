@@ -62,7 +62,7 @@ class CVGOutput(OutputChannel):
         self.proxy = proxy
 
     async def _perform_request(self, path: str, method: str = "POST", data: Optional[any] = None) -> (int, Any):
-        async with aiohttp.request(method, f"{self.base_url}{path}", json=data) as res:
+        async with aiohttp.request(method, f"{self.base_url}{path}", json=data, proxy=self.proxy) as res:
             return res.status, await res.json()
 
     async def _say(self, dialog_id: str, text: str):
@@ -172,6 +172,9 @@ class CVGOutput(OutputChannel):
 class CVGInput(InputChannel):
     """Input channel for the Cognitive Voice Gateway"""
 
+    callback: Optional[str]
+    start_intent: str
+    proxy: Optional[str]
     expected_authorization_header_value: str
     blocking_endpoints: bool
 
@@ -188,12 +191,15 @@ class CVGInput(InputChannel):
             raise ValueError('No authentication token has been configured in your credentials.yml!')
         proxy = credentials.get("proxy")
         start_intent = credentials.get("start_intent")
-        if start_intent == None:
-          start_intent = "/cvg_session"
+        if start_intent is None:
+            start_intent = "/cvg_session"
+        blocking_endpoints = bool(credentials.get("blocking_endpoints"))
+        if blocking_endpoints is None:
+            blocking_endpoints = True
 
-        return cls(token, start_intent, proxy)
+        return cls(token, start_intent, proxy, blocking_endpoints)
 
-    def __init__(self, token: Text, start_intent: Text, proxy: Optional[Text] = None, blocking_endpoints: bool = True) -> None:
+    def __init__(self, token: Text, start_intent: Text, proxy: Optional[Text], blocking_endpoints: bool) -> None:
         self.callback = None
         self.expected_authorization_header_value = f"Bearer {token}"
         self.proxy = proxy
@@ -246,7 +252,7 @@ class CVGInput(InputChannel):
                 return decorated_function
             return decorator(func)
 
-        async def process_message_oneline(request: Request, text: Text):
+        async def process_message_oneline(request: Request, text: Text, must_block: bool):
             sender_id_json=json.dumps({
                 "dialogId": request.json["dialogId"],
                 "projectContext": request.json["projectContext"],
@@ -260,10 +266,10 @@ class CVGInput(InputChannel):
                 sender_id=sender_id_base64,
             )
 
-            if self.blocking_endpoints:
-                return await result
-            else:
-                return response.empty(204)
+            if self.blocking_endpoints or must_block:
+                await result
+
+            return response.empty(204)
             
         cvg_webhook = Blueprint(
             "vier_cvg_webhook", __name__,
@@ -272,31 +278,32 @@ class CVGInput(InputChannel):
         @cvg_webhook.post("/session")
         @valid_request
         async def session(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, self.start_intent)
+            await process_message_oneline(request, self.start_intent, True)
+            return response.json({"action": "ACCEPT"}, 200)
         
         @cvg_webhook.post("/message")
         @valid_request
         async def message(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, request.json["text"])
+            return await process_message_oneline(request, request.json["text"], False)
 
         @cvg_webhook.post("/answer")
         @valid_request
         async def answer(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_answer_" + request.json["type"]["name"].lower())
+            return await process_message_oneline(request, "/cvg_answer_" + request.json["type"]["name"].lower(), False)
 
         @cvg_webhook.post("/inactivity")
         @valid_request
         async def inactivity(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_inactivity")
+            return await process_message_oneline(request, "/cvg_inactivity", False)
 
         @cvg_webhook.post("/terminated")
         @valid_request
         async def terminated(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_terminated")
+            return await process_message_oneline(request, "/cvg_terminated", False)
 
         @cvg_webhook.post("/recording")
         @valid_request
         async def recording(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_recording")
+            return await process_message_oneline(request, "/cvg_recording", False)
 
         return cvg_webhook
