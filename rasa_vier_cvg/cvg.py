@@ -172,6 +172,9 @@ class CVGOutput(OutputChannel):
 class CVGInput(InputChannel):
     """Input channel for the Cognitive Voice Gateway"""
 
+    expected_authorization_header_value: str
+    blocking_endpoints: bool
+
     @classmethod
     def name(cls) -> Text:
         return CHANNEL_NAME
@@ -190,11 +193,12 @@ class CVGInput(InputChannel):
 
         return cls(token, start_intent, proxy)
 
-    def __init__(self, token: Text, start_intent: Text, proxy: Optional[Text] = None) -> None:
+    def __init__(self, token: Text, start_intent: Text, proxy: Optional[Text] = None, blocking_endpoints: bool = True) -> None:
         self.callback = None
         self.expected_authorization_header_value = f"Bearer {token}"
         self.proxy = proxy
         self.start_intent = start_intent
+        self.blocking_endpoints = blocking_endpoints
 
     async def process_message(self, request: Request, on_new_message: Callable[[UserMessage], Awaitable[Any]], text: Text, sender_id: Optional[Text]) -> Any:
         try:
@@ -249,12 +253,17 @@ class CVGInput(InputChannel):
             })
             sender_id_base64=base64.b64encode(bytes(sender_id_json, 'utf-8')).decode('utf-8')
 
-            return await self.process_message(
+            result = self.process_message(
                 request,
                 on_new_message,
                 text=text,
                 sender_id=sender_id_base64,
             )
+
+            if self.blocking_endpoints:
+                return await result
+            else:
+                return response.empty(204)
             
         cvg_webhook = Blueprint(
             "vier_cvg_webhook", __name__,
