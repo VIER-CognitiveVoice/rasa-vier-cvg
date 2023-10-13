@@ -98,7 +98,7 @@ class CVGOutput(OutputChannel):
         logger.info(f"Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
         await self.on_message(user_message)
 
-    async def handle_bridge_result(self, status_code: int, result: Dict, recipient_id: Text):
+    async def _handle_bridge_result(self, status_code: int, result: Dict, recipient_id: Text):
         if not 200 <= status_code < 300:
             logger.info(f"Bridge request failed: {status_code} with body {result}")
             return
@@ -132,40 +132,43 @@ class CVGOutput(OutputChannel):
         dialog_id = recipient.dialog_id
         reseller_token = recipient.reseller_token
 
+        logger.info(f"Execute action {operation_name} for dialog {dialog_id} with body: {body}")
+
         if body is None:
-            newBody = {}
+            new_body = {}
         else:
-            newBody = copy.deepcopy(body)
+            new_body = copy.deepcopy(body)
 
-        path = operation_name.replace("_", "/")
         if operation_name.startswith("call_"):
-            if DIALOG_ID_FIELD not in newBody:
-                newBody[DIALOG_ID_FIELD] = dialog_id
+            if DIALOG_ID_FIELD not in new_body:
+                new_body[DIALOG_ID_FIELD] = dialog_id
 
-            status_code, response_body = await self._perform_request(path, data=newBody)
+            path = '/' + operation_name.replace('_', '/')
+            status_code, response_body = await self._perform_request(path, data=new_body)
 
             # The response from forward and bridge must be handled
             handle_result_outbound_call_result_for = ["call_forward", "call_bridge"]
             if operation_name in handle_result_outbound_call_result_for:
-                return self._handle_bridge_result(status_code, response_body)
+                await self._handle_bridge_result(status_code, response_body, recipient_id)
             elif operation_name == 'call_refer':
-                return self._handle_refer_result(status_code, response_body)
+                await self._handle_refer_result(status_code, response_body, recipient_id)
         elif operation_name.startswith("dialog_"):
             if operation_name == "dialog_delete":
-                return self._perform_request(f"/dialog/{reseller_token}/{dialog_id}", method="DELETE", data=newBody)
+                await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}", method="DELETE", data=new_body)
             elif operation_name == "dialog_data":
-                return self._perform_request(f"/dialog/{reseller_token}/{dialog_id}/data", data=newBody)
+                await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}/data", data=new_body)
             else:
                 logger.error(f"Dialog operation {operation_name} not found/not implemented yet. Consider using the cvg-python-sdk in your actions.")
+                return
         else:
             logger.error(f"Operation {operation_name} not found/not implemented yet. Consider using custom code in your actions.")
             return
-        logger.info(f"Ran operation: {operation_name}")
+        logger.info(f"Operation {operation_name} complete")
 
     async def send_custom_json(self, recipient_id: Text, json_message: Dict[Text, Any], **kwargs: Any) -> None:
         logger.info(f"Received custom json: {json_message} to {recipient_id}")
         for operation_name, body in json_message.items():
-            if operation_name[len(OPERATION_PREFIX):] == OPERATION_PREFIX:
+            if operation_name[:len(OPERATION_PREFIX)] == OPERATION_PREFIX:
                 await self._execute_operation_by_name(operation_name[len(OPERATION_PREFIX):], body, recipient_id)
 
     async def send_image_url(*args: Any, **kwargs: Any) -> None:
