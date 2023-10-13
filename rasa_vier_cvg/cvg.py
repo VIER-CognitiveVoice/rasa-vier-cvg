@@ -1,3 +1,4 @@
+import asyncio
 import copy
 from dataclasses import dataclass
 import json
@@ -63,15 +64,22 @@ class CVGOutput(OutputChannel):
 
     async def _perform_request(self, path: str, method: str = "POST", data: Optional[any] = None) -> (int, Any):
         async with aiohttp.request(method, f"{self.base_url}{path}", json=data, proxy=self.proxy) as res:
-            return res.status, await res.json()
+            status = res.status
+            if status == 204:
+                return status, {}
+
+            body = await res.json()
+            if 200 <= status < 300:
+                logger.error(f"Failed to send text message to CVG via /call/say: status={status}, body={body}")
+
+            return status, body
 
     async def _say(self, dialog_id: str, text: str):
-        return await self._perform_request("/call/say", data={"dialog_id": dialog_id, "text": text})
+        await self._perform_request("/call/say", data={DIALOG_ID_FIELD: dialog_id, "text": text})
 
     async def send_text_message(self, recipient_id: Text, text: Text, **kwargs: Any) -> None:
-        logger.info(f"Sending message to cvg: {text}")
-        logger.info(f"Ignoring the following args: {str(kwargs)}")
         dialog_id = parse_recipient_id(recipient_id).dialog_id
+        logger.info(f"Sending message to CVG dialog {dialog_id}: {text}")
         await self._say(dialog_id, text)
 
     async def _handle_refer_result(self, status_code: int, result: Dict, recipient_id: Text):
@@ -128,10 +136,10 @@ class CVGOutput(OutputChannel):
             newBody = {}
         else:
             newBody = copy.deepcopy(body)
-            
+
         path = operation_name.replace("_", "/")
         if operation_name.startswith("call_"):
-            if DIALOG_ID_FIELD not in body:
+            if DIALOG_ID_FIELD not in newBody:
                 newBody[DIALOG_ID_FIELD] = dialog_id
 
             status_code, response_body = await self._perform_request(path, data=newBody)
@@ -157,8 +165,8 @@ class CVGOutput(OutputChannel):
     async def send_custom_json(self, recipient_id: Text, json_message: Dict[Text, Any], **kwargs: Any) -> None:
         logger.info(f"Received custom json: {json_message} to {recipient_id}")
         for operation_name, body in json_message.items():
-            if operation_name.startswith(OPERATION_PREFIX):
-                await self._execute_operation_by_name(operation_name.removeprefix(OPERATION_PREFIX), body, recipient_id)
+            if operation_name[len(OPERATION_PREFIX):] == OPERATION_PREFIX:
+                await self._execute_operation_by_name(operation_name[len(OPERATION_PREFIX):], body, recipient_id)
 
     async def send_image_url(*args: Any, **kwargs: Any) -> None:
         # We do not support images.
@@ -193,10 +201,13 @@ class CVGInput(InputChannel):
         start_intent = credentials.get("start_intent")
         if start_intent is None:
             start_intent = "/cvg_session"
-        blocking_endpoints = bool(credentials.get("blocking_endpoints"))
+        blocking_endpoints = credentials.get("blocking_endpoints")
         if blocking_endpoints is None:
             blocking_endpoints = True
+        else:
+            blocking_endpoints = bool(blocking_endpoints)
 
+        logger.info(f"Creating input with: token={'*' * len(token)} proxy={proxy} start_intent={start_intent} blocking_endpoints={blocking_endpoints}")
         return cls(token, start_intent, proxy, blocking_endpoints)
 
     def __init__(self, token: Text, start_intent: Text, proxy: Optional[Text], blocking_endpoints: bool) -> None:
@@ -268,6 +279,8 @@ class CVGInput(InputChannel):
 
             if self.blocking_endpoints or must_block:
                 await result
+            else:
+                asyncio.create_task(result)
 
             return response.empty(204)
             

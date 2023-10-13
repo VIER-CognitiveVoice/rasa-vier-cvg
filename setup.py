@@ -21,6 +21,7 @@ setup(
     install_requires=[
         'rasa-sdk',
         'aiohttp',
+        'asyncio',
     ],
     packages=find_packages(),
     include_package_data=True,
