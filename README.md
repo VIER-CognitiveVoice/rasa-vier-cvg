@@ -29,7 +29,7 @@ pip install rasa-vier-cvg
 If you are using Rasa on Docker and you don't want to build a derived image, you can also download the [channel source](https://github.com/VIER-CognitiveVoice/rasa-vier-cvg/) and bind-mount the package into a `rasa/rasa`-base container with a volume definition like this:
 
 ```
-./rasa_vier_cvg:/opt/venv/lib/python3.8/site-packages/rasa_vier_cvg
+./rasa_vier_cvg:/opt/venv/lib/python3.10/site-packages/rasa_vier_cvg
 ```
 
 ### Configure Rasa
