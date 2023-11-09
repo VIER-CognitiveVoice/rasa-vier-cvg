@@ -41,8 +41,16 @@ class Recipient:
 
 def parse_recipient_id(recipient_id: Text) -> Recipient:
     parsed_json = json.loads(base64.b64decode(bytes(recipient_id, 'utf-8')).decode('utf-8'))
-    project_context = parsed_json["projectContext"]
-    return Recipient(parsed_json["dialogId"], project_context["projectToken"], project_context["resellerToken"])
+    return Recipient(parsed_json["dialogId"], parsed_json["projectToken"], parsed_json["resellerToken"])
+
+
+def create_recipient_id(recipient: Recipient) -> Text:
+    json_representation = json.dumps({
+        "resellerToken": recipient.reseller_token,
+        "projectToken": recipient.project_token,
+        "dialogId": recipient.dialog_id,
+    }, separators=(',', ':'))
+    return base64.b64encode(bytes(json_representation, 'utf-8')).decode('utf-8')
 
 
 class CVGOutput(OutputChannel):
@@ -267,11 +275,12 @@ class CVGInput(InputChannel):
             return decorator(func)
 
         async def process_message_oneline(request: Request, text: Text, must_block: bool):
-            sender_id_json=json.dumps({
-                "dialogId": request.json["dialogId"],
-                "projectContext": request.json["projectContext"],
-            })
-            sender_id_base64=base64.b64encode(bytes(sender_id_json, 'utf-8')).decode('utf-8')
+            recipient = Recipient(
+                request.json["projectContext"]["resellerToken"],
+                request.json["projectContext"]["projectToken"],
+                request.json["dialogId"]
+            )
+            sender_id_base64 = create_recipient_id(recipient)
 
             result = self.process_message(
                 request,
