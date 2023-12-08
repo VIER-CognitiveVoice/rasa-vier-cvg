@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 CHANNEL_NAME = "vier-cvg"
 OPERATION_PREFIX = "cvg_"
 DIALOG_ID_FIELD = "dialogId"
+PROJECT_CONTEXT_FIELD = "projectContext"
+RESELLER_TOKEN_FIELD = "resellerToken"
+PROJECT_TOKEN_FIELD = "projectToken"
+CALLBACK_FIELD = "callback"
 
 T = TypeVar('T')
 
@@ -41,14 +45,14 @@ class Recipient:
 
 def parse_recipient_id(recipient_id: Text) -> Recipient:
     parsed_json = json.loads(base64.b64decode(bytes(recipient_id, 'utf-8')).decode('utf-8'))
-    return Recipient(parsed_json["dialogId"], parsed_json["projectToken"], parsed_json["resellerToken"])
+    return Recipient(parsed_json[DIALOG_ID_FIELD], parsed_json[PROJECT_TOKEN_FIELD], parsed_json[RESELLER_TOKEN_FIELD])
 
 
 def create_recipient_id(recipient: Recipient) -> Text:
     json_representation = json.dumps({
-        "resellerToken": recipient.reseller_token,
-        "projectToken": recipient.project_token,
-        "dialogId": recipient.dialog_id,
+        RESELLER_TOKEN_FIELD: recipient.reseller_token,
+        PROJECT_TOKEN_FIELD: recipient.project_token,
+        DIALOG_ID_FIELD: recipient.dialog_id,
     }, separators=(',', ':'))
     return base64.b64encode(bytes(json_representation, 'utf-8')).decode('utf-8')
 
@@ -237,7 +241,7 @@ class CVGInput(InputChannel):
             metadata = make_metadata(request.json)
             user_msg = UserMessage(
                 text=text,
-                output_channel=CVGOutput(request.json["callback"], on_new_message, self.proxy),
+                output_channel=CVGOutput(request.json[CALLBACK_FIELD], on_new_message, self.proxy),
                 sender_id=sender_id,
                 input_channel=CHANNEL_NAME,
                 metadata=metadata,
@@ -265,21 +269,28 @@ class CVGInput(InputChannel):
                     json_body = request.json
                     if json_body is None:
                         return response.text("body is not valid json.", status=400)
-                    if json_body["dialogId"] is None:
-                        return response.text("dialogId is required", status=400)
-                    if json_body["callback"] is None:
-                        return response.text("callback is required", status=400)
-                    if json_body["projectContext"] is None:
-                        return response.text("projectContext is required", status=400)
+                    if json_body[DIALOG_ID_FIELD] is None:
+                        return response.text(f"{DIALOG_ID_FIELD} is required", status=400)
+                    if json_body[CALLBACK_FIELD] is None:
+                        return response.text(f"{CALLBACK_FIELD} is required", status=400)
+                    if PROJECT_CONTEXT_FIELD not in json_body:
+                        return response.text(f"{PROJECT_CONTEXT_FIELD} is required", status=400)
+                    else:
+                        project_context = json_body[PROJECT_CONTEXT_FIELD]
+                        if RESELLER_TOKEN_FIELD not in project_context:
+                            return response.text(f'The {RESELLER_TOKEN_FIELD} is required in {PROJECT_CONTEXT_FIELD}!')
+                        if PROJECT_TOKEN_FIELD not in project_context:
+                            return response.text(f'The {PROJECT_TOKEN_FIELD} is required in {PROJECT_CONTEXT_FIELD}!')
+
                     return await f(request, *args, **kwargs)
                 return decorated_function
             return decorator(func)
 
         async def process_message_oneline(request: Request, text: Text, must_block: bool):
             recipient = Recipient(
-                request.json["projectContext"]["resellerToken"],
-                request.json["projectContext"]["projectToken"],
-                request.json["dialogId"]
+                request.json[PROJECT_CONTEXT_FIELD][RESELLER_TOKEN_FIELD],
+                request.json[PROJECT_CONTEXT_FIELD][PROJECT_TOKEN_FIELD],
+                request.json[DIALOG_ID_FIELD]
             )
             sender_id_base64 = create_recipient_id(recipient)
 
@@ -293,6 +304,7 @@ class CVGInput(InputChannel):
             if self.blocking_endpoints or must_block:
                 await result
             else:
+                # noinspection PyAsyncCall
                 asyncio.create_task(result)
 
             return response.empty(204)
