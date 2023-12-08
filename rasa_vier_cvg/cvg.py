@@ -7,7 +7,7 @@ import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, Text, TypeVar
 import warnings
-import aiohttp
+from aiohttp import ClientSession
 
 # ignore ResourceWarning, InsecureRequestWarning
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -62,21 +62,23 @@ class CVGOutput(OutputChannel):
 
     on_message: Callable[[UserMessage], Awaitable[Any]]
     base_url: str
+    client_session: ClientSession
     proxy: Optional[str]
 
     @classmethod
     def name(cls) -> Text:
         return CHANNEL_NAME
 
-    def __init__(self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], proxy: Optional[str] = None) -> None:
+    def __init__(self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], client_session: ClientSession, proxy: Optional[str] = None) -> None:
         self.on_message = on_message
 
         self.base_url = callback_base_url.rstrip('/')
+        self.client_session = client_session
         self.proxy = proxy
 
     async def _perform_request(self, path: str, method: str = "POST", data: Optional[any] = None) -> (int, Any):
         url = f"{self.base_url}{path}"
-        async with aiohttp.request(method, url, json=data, proxy=self.proxy) as res:
+        async with self.client_session.request(method, url, json=data, proxy=self.proxy) as res:
             status = res.status
             if status == 204:
                 return status, {}
@@ -201,6 +203,7 @@ class CVGInput(InputChannel):
     proxy: Optional[str]
     expected_authorization_header_value: str
     blocking_endpoints: bool
+    client_session: ClientSession
 
     @classmethod
     def name(cls) -> Text:
@@ -232,6 +235,7 @@ class CVGInput(InputChannel):
         self.proxy = proxy
         self.start_intent = start_intent
         self.blocking_endpoints = blocking_endpoints
+        self.client_session = ClientSession()
 
     async def process_message(self, request: Request, on_new_message: Callable[[UserMessage], Awaitable[Any]], text: Text, sender_id: Optional[Text]) -> Any:
         try:
@@ -241,7 +245,7 @@ class CVGInput(InputChannel):
             metadata = make_metadata(request.json)
             user_msg = UserMessage(
                 text=text,
-                output_channel=CVGOutput(request.json[CALLBACK_FIELD], on_new_message, self.proxy),
+                output_channel=CVGOutput(request.json[CALLBACK_FIELD], on_new_message, self.client_session, self.proxy),
                 sender_id=sender_id,
                 input_channel=CHANNEL_NAME,
                 metadata=metadata,
