@@ -1,6 +1,5 @@
 import asyncio
 import copy
-from dataclasses import dataclass
 import json
 import base64
 import logging
@@ -36,24 +35,20 @@ def make_metadata(payload: T) -> Dict[str, T]:
     return {"cvg_body": payload}
 
 
-@dataclass
-class Recipient:
-    dialog_id: str
-    project_token: str
-    reseller_token: str
-
-
-def parse_recipient_id(recipient_id: Text) -> Recipient:
+def parse_recipient_id(recipient_id: Text) -> (str, str, str):
     parsed_json = json.loads(base64.b64decode(bytes(recipient_id, 'utf-8')).decode('utf-8'))
-    return Recipient(parsed_json[DIALOG_ID_FIELD], parsed_json[PROJECT_TOKEN_FIELD], parsed_json[RESELLER_TOKEN_FIELD])
+    if type(parsed_json) is not list or len(parsed_json) != 3:
+        raise ValueError('The given recipient id is incompatible with this output!')
+
+    return parsed_json[2], parsed_json[1], parsed_json[0]
 
 
-def create_recipient_id(recipient: Recipient) -> Text:
-    json_representation = json.dumps({
-        RESELLER_TOKEN_FIELD: recipient.reseller_token,
-        PROJECT_TOKEN_FIELD: recipient.project_token,
-        DIALOG_ID_FIELD: recipient.dialog_id,
-    }, separators=(',', ':'))
+def create_recipient_id(reseller_token, project_token, dialog_id) -> Text:
+    json_representation = json.dumps([
+        dialog_id,
+        project_token,
+        reseller_token,
+    ], separators=(',', ':'))
     return base64.b64encode(bytes(json_representation, 'utf-8')).decode('utf-8')
 
 
@@ -93,7 +88,7 @@ class CVGOutput(OutputChannel):
         await self._perform_request("/call/say", data={DIALOG_ID_FIELD: dialog_id, "text": text})
 
     async def send_text_message(self, recipient_id: Text, text: Text, **kwargs: Any) -> None:
-        dialog_id = parse_recipient_id(recipient_id).dialog_id
+        reseller_token, project_token, dialog_id = parse_recipient_id(recipient_id)
         logger.info(f"Sending message to CVG dialog {dialog_id}: {text}")
         await self._say(dialog_id, text)
 
@@ -143,9 +138,7 @@ class CVGOutput(OutputChannel):
         await self.on_message(user_message)
 
     async def _execute_operation_by_name(self, operation_name: Text, body: Any, recipient_id: Text):
-        recipient = parse_recipient_id(recipient_id)
-        dialog_id = recipient.dialog_id
-        reseller_token = recipient.reseller_token
+        reseller_token, project_token, dialog_id = parse_recipient_id(recipient_id)
 
         logger.info(f"Execute action {operation_name} for dialog {dialog_id} with body: {body}")
 
@@ -214,7 +207,7 @@ class CVGInput(InputChannel):
         if not credentials:
             cls.raise_missing_credentials_exception()
         token = credentials.get("token")
-        if token is None or type(token) != str or len(token) == 0:
+        if token is None or type(token) is str or len(token) == 0:
             raise ValueError('No authentication token has been configured in your credentials.yml!')
         proxy = credentials.get("proxy")
         start_intent = credentials.get("start_intent")
@@ -290,19 +283,18 @@ class CVGInput(InputChannel):
                 return decorated_function
             return decorator(func)
 
-        async def process_message_oneline(request: Request, text: Text, must_block: bool):
-            recipient = Recipient(
+        async def process_request(request: Request, text: Text, must_block: bool):
+            sender_id = create_recipient_id(
                 request.json[PROJECT_CONTEXT_FIELD][RESELLER_TOKEN_FIELD],
                 request.json[PROJECT_CONTEXT_FIELD][PROJECT_TOKEN_FIELD],
                 request.json[DIALOG_ID_FIELD]
             )
-            sender_id_base64 = create_recipient_id(recipient)
 
             result = self.process_message(
                 request,
                 on_new_message,
                 text=text,
-                sender_id=sender_id_base64,
+                sender_id=sender_id,
             )
 
             if self.blocking_endpoints or must_block:
@@ -320,32 +312,32 @@ class CVGInput(InputChannel):
         @cvg_webhook.post("/session")
         @valid_request
         async def session(request: Request) -> HTTPResponse:
-            await process_message_oneline(request, self.start_intent, True)
+            await process_request(request, self.start_intent, True)
             return response.json({"action": "ACCEPT"}, 200)
         
         @cvg_webhook.post("/message")
         @valid_request
         async def message(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, request.json["text"], False)
+            return await process_request(request, request.json["text"], False)
 
         @cvg_webhook.post("/answer")
         @valid_request
         async def answer(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_answer_" + request.json["type"]["name"].lower(), False)
+            return await process_request(request, "/cvg_answer_" + request.json["type"]["name"].lower(), False)
 
         @cvg_webhook.post("/inactivity")
         @valid_request
         async def inactivity(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_inactivity", False)
+            return await process_request(request, "/cvg_inactivity", False)
 
         @cvg_webhook.post("/terminated")
         @valid_request
         async def terminated(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_terminated", False)
+            return await process_request(request, "/cvg_terminated", False)
 
         @cvg_webhook.post("/recording")
         @valid_request
         async def recording(request: Request) -> HTTPResponse:
-            return await process_message_oneline(request, "/cvg_recording", False)
+            return await process_request(request, "/cvg_recording", False)
 
         return cvg_webhook
