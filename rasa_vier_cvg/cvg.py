@@ -71,14 +71,15 @@ class CVGOutput(OutputChannel):
         self.proxy = proxy
 
     async def _perform_request(self, path: str, method: str = "POST", data: Optional[any] = None) -> (int, Any):
-        async with aiohttp.request(method, f"{self.base_url}{path}", json=data, proxy=self.proxy) as res:
+        url = f"{self.base_url}{path}"
+        async with aiohttp.request(method, url, json=data, proxy=self.proxy) as res:
             status = res.status
             if status == 204:
                 return status, {}
 
             body = await res.json()
-            if 200 <= status < 300:
-                logger.error(f"Failed to send text message to CVG via /call/say: status={status}, body={body}")
+            if status < 200 or status >= 300:
+                logger.error(f"Failed to send text message to CVG via {url}: status={status}, body={body}")
 
             return status, body
 
