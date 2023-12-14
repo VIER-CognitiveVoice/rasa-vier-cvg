@@ -4,9 +4,9 @@ import json
 import base64
 import logging
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, Optional, Text, TypeVar
+from typing import Any, Awaitable, Callable, Dict, Optional, Text, TypeVar, Coroutine
 import warnings
-from aiohttp import ClientSession
+import aiohttp
 
 # ignore ResourceWarning, InsecureRequestWarning
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -57,23 +57,21 @@ class CVGOutput(OutputChannel):
 
     on_message: Callable[[UserMessage], Awaitable[Any]]
     base_url: str
-    client_session: ClientSession
     proxy: Optional[str]
 
     @classmethod
     def name(cls) -> Text:
         return CHANNEL_NAME
 
-    def __init__(self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], client_session: ClientSession, proxy: Optional[str] = None) -> None:
+    def __init__(self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], proxy: Optional[str] = None) -> None:
         self.on_message = on_message
 
         self.base_url = callback_base_url.rstrip('/')
-        self.client_session = client_session
         self.proxy = proxy
 
-    async def _perform_request(self, path: str, method: str = "POST", data: Optional[any] = None) -> (int, Any):
+    async def _perform_request(self, path: str, method: str, data: Optional[any]) -> (int, any):
         url = f"{self.base_url}{path}"
-        async with self.client_session.request(method, url, json=data, proxy=self.proxy) as res:
+        async with aiohttp.request(method, url, json=data, proxy=self.proxy) as res:
             status = res.status
             if status == 204:
                 return status, {}
@@ -84,8 +82,16 @@ class CVGOutput(OutputChannel):
 
             return status, body
 
+    def _perform_request_async(self, path: str, method: str, data: Optional[any], process_result: Callable[[int, any], Coroutine[Any, Any, None]]):
+        async def perform():
+            status, body = await self._perform_request(path, method, data)
+            await process_result(status, body)
+
+        # noinspection PyAsyncCall
+        asyncio.create_task(perform())
+
     async def _say(self, dialog_id: str, text: str):
-        await self._perform_request("/call/say", data={DIALOG_ID_FIELD: dialog_id, "text": text})
+        await self._perform_request("/call/say", method="POST", data={DIALOG_ID_FIELD: dialog_id, "text": text})
 
     async def send_text_message(self, recipient_id: Text, text: Text, **kwargs: Any) -> None:
         reseller_token, project_token, dialog_id = parse_recipient_id(recipient_id)
@@ -152,19 +158,29 @@ class CVGOutput(OutputChannel):
                 new_body[DIALOG_ID_FIELD] = dialog_id
 
             path = '/' + operation_name.replace('_', '/')
-            status_code, response_body = await self._perform_request(path, data=new_body)
 
             # The response from forward and bridge must be handled
             handle_result_outbound_call_result_for = ["call_forward", "call_bridge"]
             if operation_name in handle_result_outbound_call_result_for:
-                await self._handle_bridge_result(status_code, response_body, recipient_id)
+                async def handle_outbound(status_code, response_body):
+                    await self._handle_bridge_result(status_code, response_body, recipient_id)
+                callback = handle_outbound
             elif operation_name == 'call_refer':
-                await self._handle_refer_result(status_code, response_body, recipient_id)
+                async def handle_refer(status_code, response_body):
+                    await self._handle_refer_result(status_code, response_body, recipient_id)
+                callback = handle_refer
+            else:
+                async def do_nothing(*args):
+                    pass
+                callback = do_nothing
+
+            self._perform_request_async(path, method="POST", data=new_body, process_result=callback)
+
         elif operation_name.startswith("dialog_"):
             if operation_name == "dialog_delete":
                 await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}", method="DELETE", data=new_body)
             elif operation_name == "dialog_data":
-                await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}/data", data=new_body)
+                await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}/data", method="POST", data=new_body)
             else:
                 logger.error(f"Dialog operation {operation_name} not found/not implemented yet. Consider using the cvg-python-sdk in your actions.")
                 return
@@ -196,7 +212,6 @@ class CVGInput(InputChannel):
     proxy: Optional[str]
     expected_authorization_header_value: str
     blocking_endpoints: bool
-    client_session: ClientSession
 
     @classmethod
     def name(cls) -> Text:
@@ -207,7 +222,7 @@ class CVGInput(InputChannel):
         if not credentials:
             cls.raise_missing_credentials_exception()
         token = credentials.get("token")
-        if token is None or type(token) is str or len(token) == 0:
+        if token is None or not isinstance(token, str) or len(token) == 0:
             raise ValueError('No authentication token has been configured in your credentials.yml!')
         proxy = credentials.get("proxy")
         start_intent = credentials.get("start_intent")
@@ -228,7 +243,6 @@ class CVGInput(InputChannel):
         self.proxy = proxy
         self.start_intent = start_intent
         self.blocking_endpoints = blocking_endpoints
-        self.client_session = ClientSession()
 
     async def process_message(self, request: Request, on_new_message: Callable[[UserMessage], Awaitable[Any]], text: Text, sender_id: Optional[Text]) -> Any:
         try:
@@ -238,7 +252,7 @@ class CVGInput(InputChannel):
             metadata = make_metadata(request.json)
             user_msg = UserMessage(
                 text=text,
-                output_channel=CVGOutput(request.json[CALLBACK_FIELD], on_new_message, self.client_session, self.proxy),
+                output_channel=CVGOutput(request.json[CALLBACK_FIELD], on_new_message, self.proxy),
                 sender_id=sender_id,
                 input_channel=CHANNEL_NAME,
                 metadata=metadata,
