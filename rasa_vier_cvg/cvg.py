@@ -82,8 +82,10 @@ class CVGOutput(OutputChannel):
 
             return status, body
 
-    def _perform_request_async(self, path: str, method: str, data: Optional[any], process_result: Callable[[int, any], Coroutine[Any, Any, None]]):
+    def _perform_request_async(self, path: str, method: str, data: Optional[any], delay: float, process_result: Callable[[int, any], Coroutine[Any, Any, None]]):
         async def perform():
+            if delay > 0:
+                await asyncio.sleep(delay)
             status, body = await self._perform_request(path, method, data)
             await process_result(status, body)
 
@@ -174,7 +176,7 @@ class CVGOutput(OutputChannel):
                     pass
                 callback = do_nothing
 
-            self._perform_request_async(path, method="POST", data=new_body, process_result=callback)
+            self._perform_request_async(path, method="POST", data=new_body, delay=0.050, process_result=callback)
 
         elif operation_name.startswith("dialog_"):
             if operation_name == "dialog_delete":
