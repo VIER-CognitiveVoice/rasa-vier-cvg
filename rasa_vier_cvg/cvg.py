@@ -79,22 +79,31 @@ class CVGOutput(OutputChannel):
         self.base_url = callback_base_url.rstrip('/')
         self.proxy = proxy
 
-    async def _perform_request(self, path: str, method: str, data: Optional[any]) -> (int, any):
+    async def _perform_request(self, path: str, method: str, data: Optional[any], dialog_id: Optional[str], retries: int = 0) -> (Optional[int], any):
         url = f"{self.base_url}{path}"
-        async with aiohttp.request(method, url, json=data, proxy=self.proxy) as res:
-            status = res.status
-            if status == 204:
-                return status, {}
+        try:
+            async with aiohttp.request(method, url, json=data, proxy=self.proxy) as res:
+                status = res.status
+                if status == 204:
+                    return status, {}
 
-            body = await res.json()
-            if status < 200 or status >= 300:
-                logger.error(f"Failed to send text message to CVG via {url}: status={status}, body={body}")
+                body = await res.json()
+                if status < 200 or status >= 300:
+                    logger.error(f"{dialog_id} - Failed to send text message to CVG via {url}: status={status}, body={body}")
 
-            return status, body
+                return status, body
+        except aiohttp.ClientResponseError as e:
+            logger.error(f"{dialog_id} - Failed to send text message to CVG via {url}: status={e.status}, message={e.message}")
+        except aiohttp.ClientConnectionError:
+            if retries < 3:
+                logger.error(f"{dialog_id} - The connection failed, retrying...")
+                await self._perform_request(path, method, data, dialog_id, retries + 1)
+            else:
+                logger.error(f"{dialog_id} - {retries} retries all failed, that's it!")
 
-    def _perform_request_async(self, path: str, method: str, data: Optional[any], process_result: Callable[[int, any], Coroutine[Any, Any, None]]):
+    def _perform_request_async(self, path: str, method: str, data: Optional[any], dialog_id: Optional[str], process_result: Callable[[int, any], Coroutine[Any, Any, None]]):
         async def perform():
-            status, body = await self._perform_request(path, method, data)
+            status, body = await self._perform_request(path, method, data, dialog_id)
             await process_result(status, body)
 
         self.task_container.run(perform())
@@ -105,12 +114,12 @@ class CVGOutput(OutputChannel):
 
     async def send_text_message(self, recipient_id: Text, text: Text, **kwargs: Any) -> None:
         reseller_token, project_token, dialog_id = parse_recipient_id(recipient_id)
-        logger.info(f"Sending message to CVG dialog {dialog_id}: {text}")
+        logger.info(f"{dialog_id} - Sending text to say: {text}")
         await self._say(dialog_id, text)
 
-    async def _handle_refer_result(self, status_code: int, result: Dict, recipient_id: Text):
+    async def _handle_refer_result(self, status_code: int, result: Dict, dialog_id: Text, recipient_id: Text):
         if 200 <= status_code < 300:
-            logger.info(f"Refer request succeeded: {status_code} with body {result}")
+            logger.info(f"{dialog_id} - Refer request succeeded: {status_code} with body {result}")
             return
 
         user_message = UserMessage(
@@ -121,12 +130,12 @@ class CVGOutput(OutputChannel):
             metadata=make_metadata(result),
         )
 
-        logger.info(f"Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
+        logger.info(f"{dialog_id} - Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
         await self.on_message(user_message)
 
-    async def _handle_bridge_result(self, status_code: int, result: Dict, recipient_id: Text):
+    async def _handle_bridge_result(self, status_code: int, result: Dict, dialog_id: Text, recipient_id: Text):
         if not 200 <= status_code < 300:
-            logger.info(f"Bridge request failed: {status_code} with body {result}")
+            logger.info(f"{dialog_id} - Bridge request failed: {status_code} with body {result}")
             return
 
         status = result["status"]
@@ -147,16 +156,15 @@ class CVGOutput(OutputChannel):
                 metadata=make_metadata(result),
             )
         else:
-            logger.info(f"Invalid bridge result: {status}")
+            logger.info(f"{dialog_id} - Invalid bridge result: {status}")
             return
 
-        logger.info(f"Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
+        logger.info(f"{dialog_id} - Creating incoming UserMessage: text={user_message.text}, output_channel={user_message.output_channel}, sender_id={user_message.sender_id}, metadata={user_message.metadata}")
         await self.on_message(user_message)
 
     async def _execute_operation_by_name(self, operation_name: Text, body: Any, recipient_id: Text):
         reseller_token, project_token, dialog_id = parse_recipient_id(recipient_id)
-
-        logger.info(f"Execute action {operation_name} for dialog {dialog_id} with body: {body}")
+        logger.info(f"{dialog_id} - Execute action {operation_name} with body: {body}")
 
         if body is None:
             new_body = {}
@@ -173,34 +181,33 @@ class CVGOutput(OutputChannel):
             handle_result_outbound_call_result_for = ["call_forward", "call_bridge"]
             if operation_name in handle_result_outbound_call_result_for:
                 async def handle_outbound(status_code, response_body):
-                    await self._handle_bridge_result(status_code, response_body, recipient_id)
+                    await self._handle_bridge_result(status_code, response_body, dialog_id, recipient_id)
                 callback = handle_outbound
             elif operation_name == 'call_refer':
                 async def handle_refer(status_code, response_body):
-                    await self._handle_refer_result(status_code, response_body, recipient_id)
+                    await self._handle_refer_result(status_code, response_body, dialog_id, recipient_id)
                 callback = handle_refer
             else:
                 async def do_nothing(*args):
                     pass
                 callback = do_nothing
 
-            self._perform_request_async(path, method="POST", data=new_body, process_result=callback)
+            self._perform_request_async(path, method="POST", data=new_body, dialog_id=dialog_id, process_result=callback)
 
         elif operation_name.startswith("dialog_"):
             if operation_name == "dialog_delete":
-                await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}", method="DELETE", data=new_body)
+                await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}", method="DELETE", data=new_body, dialog_id=dialog_id)
             elif operation_name == "dialog_data":
-                await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}/data", method="POST", data=new_body)
+                await self._perform_request(f"/dialog/{reseller_token}/{dialog_id}/data", method="POST", data=new_body, dialog_id=dialog_id)
             else:
-                logger.error(f"Dialog operation {operation_name} not found/not implemented yet. Consider using the cvg-python-sdk in your actions.")
+                logger.error(f"{dialog_id} - Dialog operation {operation_name} not found/not implemented yet.")
                 return
         else:
-            logger.error(f"Operation {operation_name} not found/not implemented yet. Consider using custom code in your actions.")
+            logger.error(f"{dialog_id} - Operation {operation_name} not found/not implemented yet.")
             return
-        logger.info(f"Operation {operation_name} complete")
+        logger.info(f"{dialog_id} - Operation {operation_name} complete")
 
     async def send_custom_json(self, recipient_id: Text, json_message: Dict[Text, Any], **kwargs: Any) -> None:
-        logger.info(f"Received custom json: {json_message} to {recipient_id}")
         for operation_name, body in json_message.items():
             if operation_name[:len(OPERATION_PREFIX)] == OPERATION_PREFIX:
                 await asyncio.sleep(0.050)
@@ -256,7 +263,7 @@ class CVGInput(InputChannel):
         self.start_intent = start_intent
         self.blocking_endpoints = blocking_endpoints
 
-    async def process_message(self, request: Request, on_new_message: Callable[[UserMessage], Awaitable[Any]], text: Text, sender_id: Optional[Text]) -> Any:
+    async def _process_message(self, request: Request, on_new_message: Callable[[UserMessage], Awaitable[Any]], dialog_id: Text, text: Text, sender_id: Text) -> Any:
         try:
             if text[-1] == ".":
                 text = text[:-1]
@@ -270,12 +277,12 @@ class CVGInput(InputChannel):
                 metadata=metadata,
             )
 
-            logger.info(f"Creating incoming UserMessage: text={text}, output_channel={user_msg.output_channel}, sender_id={sender_id}, metadata={metadata}")
+            logger.info(f"{dialog_id} - Creating incoming UserMessage: text={text}, output_channel={user_msg.output_channel}, sender_id={sender_id}, metadata={metadata}")
 
             await on_new_message(user_msg)
         except Exception as e:
-            logger.error(f"Exception when trying to handle message: {e}")
-            logger.error(str(e), exc_info=True)
+            logger.error(f"{dialog_id} - Exception when trying to handle message: {e}")
+            logger.error(e, exc_info=True)
 
         return response.empty(204)
 
@@ -309,18 +316,20 @@ class CVGInput(InputChannel):
                 return decorated_function
             return decorator(func)
 
-        async def process_request(request: Request, text: Text, must_block: bool):
+        async def _process_request(request: Request, text: Text, must_block: bool):
+            dialog_id = request.json[DIALOG_ID_FIELD]
             sender_id = create_recipient_id(
                 request.json[PROJECT_CONTEXT_FIELD][RESELLER_TOKEN_FIELD],
                 request.json[PROJECT_CONTEXT_FIELD][PROJECT_TOKEN_FIELD],
-                request.json[DIALOG_ID_FIELD]
+                dialog_id
             )
 
-            result = self.process_message(
+            result = self._process_message(
                 request,
                 on_new_message,
-                text=text,
-                sender_id=sender_id,
+                dialog_id,
+                text,
+                sender_id,
             )
 
             if self.blocking_endpoints or must_block:
@@ -337,32 +346,32 @@ class CVGInput(InputChannel):
         @cvg_webhook.post("/session")
         @valid_request
         async def session(request: Request) -> HTTPResponse:
-            await process_request(request, self.start_intent, True)
+            await _process_request(request, self.start_intent, True)
             return response.json({"action": "ACCEPT"}, 200)
         
         @cvg_webhook.post("/message")
         @valid_request
         async def message(request: Request) -> HTTPResponse:
-            return await process_request(request, request.json["text"], False)
+            return await _process_request(request, request.json["text"], False)
 
         @cvg_webhook.post("/answer")
         @valid_request
         async def answer(request: Request) -> HTTPResponse:
-            return await process_request(request, "/cvg_answer_" + request.json["type"]["name"].lower(), False)
+            return await _process_request(request, "/cvg_answer_" + request.json["type"]["name"].lower(), False)
 
         @cvg_webhook.post("/inactivity")
         @valid_request
         async def inactivity(request: Request) -> HTTPResponse:
-            return await process_request(request, "/cvg_inactivity", False)
+            return await _process_request(request, "/cvg_inactivity", False)
 
         @cvg_webhook.post("/terminated")
         @valid_request
         async def terminated(request: Request) -> HTTPResponse:
-            return await process_request(request, "/cvg_terminated", False)
+            return await _process_request(request, "/cvg_terminated", False)
 
         @cvg_webhook.post("/recording")
         @valid_request
         async def recording(request: Request) -> HTTPResponse:
-            return await process_request(request, "/cvg_recording", False)
+            return await _process_request(request, "/cvg_recording", False)
 
         return cvg_webhook
