@@ -100,7 +100,8 @@ class CVGOutput(OutputChannel):
         self.task_container.run(perform())
 
     async def _say(self, dialog_id: str, text: str):
-        await self._perform_request("/call/say", method="POST", data={DIALOG_ID_FIELD: dialog_id, "text": text})
+        if len(text.strip()) > 0:
+            await self._perform_request("/call/say", method="POST", data={DIALOG_ID_FIELD: dialog_id, "text": text}, dialog_id=dialog_id)
 
     async def send_text_message(self, recipient_id: Text, text: Text, **kwargs: Any) -> None:
         reseller_token, project_token, dialog_id = parse_recipient_id(recipient_id)
