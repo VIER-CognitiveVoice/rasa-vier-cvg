@@ -230,6 +230,7 @@ class CVGInput(InputChannel):
     proxy: Optional[str]
     expected_authorization_header_value: str
     blocking_endpoints: bool
+    ignore_messages_when_busy: bool
     task_container: TaskContainer = TaskContainer()
 
     @classmethod
@@ -253,15 +254,26 @@ class CVGInput(InputChannel):
         else:
             blocking_endpoints = bool(blocking_endpoints)
 
-        logger.info(f"Creating input with: token={'*' * len(token)} proxy={proxy} start_intent={start_intent} blocking_endpoints={blocking_endpoints}")
-        return cls(token, start_intent, proxy, blocking_endpoints)
+        ignore_messages_when_busy = credentials.get("ignore_messages_when_busy")
+        if ignore_messages_when_busy is None:
+            ignore_messages_when_busy = False
+        else:
+            ignore_messages_when_busy = bool(ignore_messages_when_busy)
 
-    def __init__(self, token: Text, start_intent: Text, proxy: Optional[Text], blocking_endpoints: bool) -> None:
+# There must be some way to access the tracker. But it is probably going to be private anyway...
+
+
+        logger.info(f"Creating input with: token={'*' * len(token)} proxy={proxy} start_intent={start_intent} blocking_endpoints={blocking_endpoints} ignore_messages_when_busy={ignore_messages_when_busy}")
+        return cls(token, start_intent, proxy, blocking_endpoints, ignore_messages_when_busy)
+
+    def __init__(self, token: Text, start_intent: Text, proxy: Optional[Text], blocking_endpoints: bool, ignore_messages_when_busy: bool) -> None:
         self.callback = None
         self.expected_authorization_header_value = f"Bearer {token}"
         self.proxy = proxy
         self.start_intent = start_intent
         self.blocking_endpoints = blocking_endpoints
+        self.ignore_messages_when_busy = ignore_messages_when_busy
+        self.ignore_messages_for = [str]
 
     async def _process_message(self, request: Request, on_new_message: Callable[[UserMessage], Awaitable[Any]], dialog_id: Text, text: Text, sender_id: Text) -> Any:
         try:
@@ -277,9 +289,17 @@ class CVGInput(InputChannel):
                 metadata=metadata,
             )
 
-            logger.info(f"{dialog_id} - Creating incoming UserMessage: text={text}, output_channel={user_msg.output_channel}, sender_id={sender_id}, metadata={metadata}")
+            if (self.ignore_messages_when_busy):
+                if (dialog_id in self.ignore_messages_for):
+                    logger.warning(f"{dialog_id} - A message is already being processed for this dialog and ignore_messages_when_busy is True. Ignoring message from User: '{text}'")
+                    return response.empty(204)
+                else:
+                    self.ignore_messages_for.append(dialog_id)
 
+            logger.info(f"{dialog_id} - Creating incoming UserMessage: text={text}, output_channel={user_msg.output_channel}, sender_id={sender_id}, metadata={metadata}")
             await on_new_message(user_msg)
+            self.ignore_messages_for.remove(dialog_id)
+            logger.info(f"{dialog_id} - Processing of UserMessage '{text}' finished.")
         except Exception as e:
             logger.error(f"{dialog_id} - Exception when trying to handle message: {e}")
             logger.error(e, exc_info=True)
