@@ -260,9 +260,6 @@ class CVGInput(InputChannel):
         else:
             ignore_messages_when_busy = bool(ignore_messages_when_busy)
 
-# There must be some way to access the tracker. But it is probably going to be private anyway...
-
-
         logger.info(f"Creating input with: token={'*' * len(token)} proxy={proxy} start_intent={start_intent} blocking_endpoints={blocking_endpoints} ignore_messages_when_busy={ignore_messages_when_busy}")
         return cls(token, start_intent, proxy, blocking_endpoints, ignore_messages_when_busy)
 
