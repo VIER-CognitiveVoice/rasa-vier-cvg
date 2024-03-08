@@ -79,6 +79,14 @@ class CVGOutput(OutputChannel):
         self.base_url = callback_base_url.rstrip('/')
         self.proxy = proxy
 
+    # This is a very specific workaround to ignore messages received by this channel.
+    # When a custom rasa action returns a response, it is sent to the current channel and gets added to the tracker.
+    # However, returning an Event, it should only get added to the tracker, not sent to the channel. I believe this is a bug.
+    # If you want to maintain an accurate history in the tracker when using the CVG API directly, we have to send a response or event.
+    # Now, to prevent sending the message to CVG twice, this flag can be set to true so that channel drops the message.
+    def _is_ignored(self, custom_json) -> bool:
+        return custom_json is not None and "ignore" in custom_json and custom_json["ignore"] == True
+
     async def _perform_request(self, path: str, method: str, data: Optional[any], dialog_id: Optional[str], retries: int = 0) -> (Optional[int], any):
         url = f"{self.base_url}{path}"
         try:
@@ -112,7 +120,10 @@ class CVGOutput(OutputChannel):
         if len(text.strip()) > 0:
             await self._perform_request("/call/say", method="POST", data={DIALOG_ID_FIELD: dialog_id, "text": text}, dialog_id=dialog_id)
 
-    async def send_text_message(self, recipient_id: Text, text: Text, **kwargs: Any) -> None:
+    async def send_text_message(self, recipient_id: Text, text: Text, custom, **kwargs: Any) -> None:
+        if self._is_ignored(custom):
+            return
+
         reseller_token, project_token, dialog_id = parse_recipient_id(recipient_id)
         logger.info(f"{dialog_id} - Sending text to say: {text}")
         await self._say(dialog_id, text)
@@ -208,6 +219,9 @@ class CVGOutput(OutputChannel):
         logger.info(f"{dialog_id} - Operation {operation_name} complete")
 
     async def send_custom_json(self, recipient_id: Text, json_message: Dict[Text, Any], **kwargs: Any) -> None:
+        if self._is_ignored(json_message):
+            return
+
         for operation_name, body in json_message.items():
             if operation_name[:len(OPERATION_PREFIX)] == OPERATION_PREFIX:
                 await asyncio.sleep(0.050)
