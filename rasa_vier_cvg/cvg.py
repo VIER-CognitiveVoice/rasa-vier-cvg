@@ -79,11 +79,13 @@ class CVGOutput(OutputChannel):
         self.base_url = callback_base_url.rstrip('/')
         self.proxy = proxy
 
-    # This is a very specific workaround to ignore messages received by this channel.
-    # When a custom rasa action returns a response, it is sent to the current channel and gets added to the tracker.
+    # This functionality can be used to ignore certain messages received by this channel.
+    # It can be used as a workaround for dialog setups that produce messages that should not be forwarded to CVG but still be tracked.
+    # Due to a bug in rasa, this feature is required:
+    # Normally, when a custom rasa action returns a response, it is sent to the current channel and gets added to the tracker.
     # However, returning an Event, it should only get added to the tracker, not sent to the channel. I believe this is a bug.
-    # If you want to maintain an accurate history in the tracker when using the CVG API directly, we have to send a response or event.
-    # Now, to prevent sending the message to CVG twice, this flag can be set to true so that channel drops the message.
+    # If you want to maintain an accurate history in the tracker when using the CVG API directly, we have to send an event.
+    # Now, to prevent sending the message to CVG twice, this flag can be set to true so that the channel drops the message.
     def _is_ignored(self, custom_json) -> bool:
         return custom_json is not None and "ignore" in custom_json and custom_json["ignore"] == True
 
