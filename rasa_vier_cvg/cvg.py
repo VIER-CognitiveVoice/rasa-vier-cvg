@@ -315,7 +315,8 @@ class CVGInput(InputChannel):
             try:
                 await on_new_message(user_msg)
             finally:
-                self.ignore_messages_for.remove(dialog_id)
+                if (self.ignore_messages_when_busy):
+                    self.ignore_messages_for.remove(dialog_id)
         except Exception as e:
             logger.error(f"{dialog_id} - Exception when trying to handle message: {e}")
             logger.error(e, exc_info=True)
