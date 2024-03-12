@@ -248,6 +248,7 @@ class CVGInput(InputChannel):
     blocking_endpoints: bool
     ignore_messages_when_busy: bool
     task_container: TaskContainer = TaskContainer()
+    ignore_messages_for: set[Text] = set()
 
     @classmethod
     def name(cls) -> Text:
@@ -286,7 +287,6 @@ class CVGInput(InputChannel):
         self.start_intent = start_intent
         self.blocking_endpoints = blocking_endpoints
         self.ignore_messages_when_busy = ignore_messages_when_busy
-        self.ignore_messages_for = [str]
 
     async def _process_message(self, request: Request, on_new_message: Callable[[UserMessage], Awaitable[Any]], dialog_id: Text, text: Text, sender_id: Text) -> Any:
         try:
@@ -302,17 +302,20 @@ class CVGInput(InputChannel):
                 metadata=metadata,
             )
 
+            # Ignore Messages when busy uses a local variable to check if there is already a message being processed.
+            # This means that this feature does NOT work with multiple instances of this channel/rasa handling the same sender_id.
             if (self.ignore_messages_when_busy):
                 if (dialog_id in self.ignore_messages_for):
                     logger.warning(f"{dialog_id} - A message is already being processed for this dialog and ignore_messages_when_busy is True. Ignoring message from User: '{text}'")
                     return response.empty(204)
                 else:
-                    self.ignore_messages_for.append(dialog_id)
+                    self.ignore_messages_for.add(dialog_id)
 
             logger.info(f"{dialog_id} - Creating incoming UserMessage: text={text}, output_channel={user_msg.output_channel}, sender_id={sender_id}, metadata={metadata}")
-            await on_new_message(user_msg)
-            self.ignore_messages_for.remove(dialog_id)
-            logger.info(f"{dialog_id} - Processing of UserMessage '{text}' finished.")
+            try:
+                await on_new_message(user_msg)
+            finally:
+                self.ignore_messages_for.remove(dialog_id)
         except Exception as e:
             logger.error(f"{dialog_id} - Exception when trying to handle message: {e}")
             logger.error(e, exc_info=True)
