@@ -248,6 +248,7 @@ class CVGInput(InputChannel):
     blocking_endpoints: bool
     ignore_messages_when_busy: bool
     task_container: TaskContainer = TaskContainer()
+    # This Set is not thread safe. However, sanic is not multithreaded.
     ignore_messages_for: set[Text] = set()
 
     @classmethod
