@@ -74,7 +74,7 @@ In the following sections, the term "metadata" will refer to this `cvg_body` fie
 Normal spoken inputs from the user as well as DTMF inputs will be transmitted as text inputs to Rasa. All other CVG events will trigger specific intents as described below.
 All messages and intents will have CVG's dialog ID as the `sender_id` field.
 
-Text inputs follow [this specification](/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/message). An example for the text input metadata would be:
+Text inputs follow [this specification](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/message). An example for the text input metadata would be:
 
 ```json
 {
@@ -98,15 +98,15 @@ Voice and DTMF inputs can be differentiated using the `type` field, which would 
 
 Here is a list of the intents triggered by CVG for certain events:
 
-* `cvg_session`: This intent is triggered once (after a new call has been established) before anything else to allow the bot to respond e.g. with a greeting. Metadata is defined by [this specification](/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/session)
-* `cvg_terminated`: This intent is triggered once the conversation has been terminated by the user. Metadata is specified [here](/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/terminated).
-* `cvg_inactivity`: This intent is triggered once the inactivity timeout has been triggered due to a lack of user input. Metadata is specified [here](/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/inactivity).
-* `cvg_recording`: This intent is triggered once the recording status changes. Metadata is specified [here](/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/answer).
-* `cvg_answer_number`, `cvg_answer_multiplechoice` and `cvg_answer_timeout`: These intents are triggered once a prompt (see next section) of type `Number` or `MultipleChoice` complete are timeout. Metadata is specified [here](/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/answer).
-* `cvg_outbound_success`: The success result of `forward` or `bridge` (see next section). It signals that the outgoing call has been successfully established. Metadata is specified by the response objects of the matching operations from the [Call API](/specs/?urls.primaryName=Call%20API#/call/forward).
-* `cvg_outbound_failure`: The failure result of `forward` or `bridge` (see next section). It signals that the outgoing call could not be established and provides some details as to why. Metadata is specified by the response objects of the matching operations from the [Call API](/specs/?urls.primaryName=Call%20API#/call/forward).
+* `cvg_session`: This intent is triggered once (after a new call has been established) before anything else to allow the bot to respond e.g. with a greeting. Metadata is defined by [this specification](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/session)
+* `cvg_terminated`: This intent is triggered once the conversation has been terminated by the user. Metadata is specified [here](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/terminated).
+* `cvg_inactivity`: This intent is triggered once the inactivity timeout has been triggered due to a lack of user input. Metadata is specified [here](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/inactivity).
+* `cvg_recording`: This intent is triggered once the recording status changes. Metadata is specified [here](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/answer).
+* `cvg_answer_number`, `cvg_answer_multiplechoice` and `cvg_answer_timeout`: These intents are triggered once a prompt (see next section) of type `Number` or `MultipleChoice` complete are timeout. Metadata is specified [here](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20%28Client%29#/bot/answer).
+* `cvg_outbound_success`: The success result of `forward` or `bridge` (see next section). It signals that the outgoing call has been successfully established. Metadata is specified by the response objects of the matching operations from the [Call API](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API#/call/forward).
+* `cvg_outbound_failure`: The failure result of `forward` or `bridge` (see next section). It signals that the outgoing call could not be established and provides some details as to why. Metadata is specified by the response objects of the matching operations from the [Call API](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API#/call/forward).
   Depending on the exact reason (check out the `OutboundCallFailure` model in the
-  [API specification](/specs/?urls.primaryName=Call%20API) for all possible reasons) there might not
+  [API specification](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API) for all possible reasons) there might not
   be a `ringStartTimestamp` and the `ringTime` could be zero.
 
 
@@ -114,7 +114,7 @@ Here is a list of the intents triggered by CVG for certain events:
 
 The output channel for CVG supports `text_message`s and `custom_json`.
 
-Text messages will be translated into [Say](/specs/?urls.primaryName=Call%20API#/call/say)-commands.
+Text messages will be translated into [Say](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API#/call/say)-commands.
 
 Every other command supported by the channel must be triggered by using custom JSON. The key for the custom JSON messages is an encoding of CVG's API endpoints and follows this schema:
 
@@ -122,12 +122,12 @@ Every other command supported by the channel must be triggered by using custom J
 cvg_<path with underscores instead of slashes>
 ```
 
-So for example in order to use the [/call/play](/specs/?urls.primaryName=Call%20API#/call/play) endpoint you would use `cvg_call_play` as the key, for [/call/transcription/switch](/specs/?urls.primaryName=Call%20API#/call/switchTranscription) it would be `cvg_call_transcription_switch` and so on.
+So for example in order to use the [/call/play](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API#/call/play) endpoint you would use `cvg_call_play` as the key, for [/call/transcription/switch](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API#/call/switchTranscription) it would be `cvg_call_transcription_switch` and so on.
 
 The JSON values will be used as-is as the request-body for the API call, so refer to the API documentations, most commonly the [Call API](/specs/?urls.primaryName=Call%20API) for specifics.
 The only exception to this is, that the dialog ID (`sender_id`) which is automatically injected into the payloads as necessary.
 
-Currently all operation documented in the [Call API](/specs/?urls.primaryName=Call%20API) as well as dialog_delete and dialog_data are implemented.
+Currently all operation documented in the [Call API](https://cognitivevoice.io/specs/?urls.primaryName=Call%20API) as well as dialog_delete and dialog_data are implemented.
 
 In case you want to call an API endpoint which is a bit more complex like `/call/forward` or something that is currently not implemented in this channel, you can use simply make the request manually using python.
 
@@ -213,7 +213,7 @@ class ActionPrintCvgBody(Action):
 
 #### Now that we can send requests to CVG, let's receive them
 You may already notice that the bot immediately says something after calling. That is because we haven't told Rasa yet how to handle the `cvg_session` intent.  
-That intent is triggered when [/session](https://stage.cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20(Client)#/bot/session) in the [Bot API](https://stage.cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20(Client)) is called.
+That intent is triggered when [/session](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20(Client)#/bot/session) in the [Bot API](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20(Client)) is called.
 
 In your `stories.yml` replace the intent `greet` with `cvg_session`:
 ```diff
@@ -286,5 +286,5 @@ We provide a demo voicebot built with Rasa and CVG on [GitHub](https://github.co
 
 ### Some details about the structure of this channel
 - When CVG sends an event to Rasa, this channel will generate the intent (as specified [above](#from-rasa-to-cvg-commands))
-  - The intent's metadata will contain the body sent by CVG as specified in the [Bot API](https://stage.cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20(Client))
+  - The intent's metadata will contain the body sent by CVG as specified in the [Bot API](https://cognitivevoice.io/specs/?urls.primaryName=Bot%20API%20(Client))
 - When you utter a text message, or a [Custom Response](https://rasa.com/docs/rasa/responses/#custom-output-payloads), we pass the content of the payload to CVG after adding the `dialog_id`
