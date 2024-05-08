@@ -52,7 +52,7 @@ This channel will be used for communication with CVG.
 The Bot token is required so that Rasa can verify that CVG is communicating with your Rasa Bot.
 
 The optional `blocking_endpoints` option allows to disable blocking CVG's request while processing the user message.
-For compatibility reasons this option defaults to `true`, but we recommend setting it to `false`.
+For compatibility reasons this option defaults to `true`, but we recommend setting it to `false`. The `/session` request is unaffected by this option and always blocks.
 
 ### Configuring CVG
 
