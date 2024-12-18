@@ -67,6 +67,7 @@ class CVGOutput(OutputChannel):
     on_message: Callable[[UserMessage], Awaitable[Any]]
     base_url: str
     proxy: Optional[str]
+    task_container: TaskContainer
 
     @classmethod
     def name(cls) -> Text:
@@ -92,6 +93,8 @@ class CVGOutput(OutputChannel):
 
     async def _perform_request_sync(self, path: str, method: str, data: Optional[any], dialog_id: Optional[str], retries: int = 0) -> (Optional[int], any):
         url = f"{self.base_url}{path}"
+        status = -1
+        body = None
         try:
             async with aiohttp.request(method, url, json=data, proxy=self.proxy) as res:
                 status = res.status
@@ -99,18 +102,16 @@ class CVGOutput(OutputChannel):
                     return status, {}
 
                 body = await res.json()
-                if status < 200 or status >= 300:
-                    logger.error(f"{dialog_id} - Failed to send text message to CVG via {url}: status={status}, body={body}")
-
                 return status, body
         except aiohttp.ClientResponseError as e:
-            logger.error(f"{dialog_id} - Failed to send text message to CVG via {url}: status={e.status}, message={e.message}")
+            return e.status, e.message
         except aiohttp.ClientConnectionError:
             if retries < 3:
                 logger.error(f"{dialog_id} - The connection failed, retrying...")
-                await self._perform_request_sync(path, method, data, dialog_id, retries + 1)
+                return await self._perform_request_sync(path, method, data, dialog_id, retries + 1)
             else:
                 logger.error(f"{dialog_id} - {retries} retries all failed, that's it!")
+                return status, body
 
     def _perform_request_async(self, path: str, method: str, data: Optional[any], dialog_id: Optional[str], process_result: Callable[[int, any], Coroutine[Any, Any, None]]):
         async def perform():
@@ -122,7 +123,8 @@ class CVGOutput(OutputChannel):
     async def _perform_request(self, path: str, method: str, data: Optional[any], dialog_id: Optional[str]):
         async def handle_result(status_code, response_body):
             if not 200 <= status_code < 300:
-                logger.info(f"{dialog_id} - {method} request to {path} failed: {status_code} with body {response_body}")
+                url = f"{self.base_url}{path}"
+                logger.error(f"{dialog_id} - Failed to send command to CVG via {method} {url}: status={status_code}, message={response_body}")
                 return
 
         if self.blocking_output:
