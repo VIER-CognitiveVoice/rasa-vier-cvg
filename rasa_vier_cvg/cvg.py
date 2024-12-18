@@ -87,7 +87,7 @@ class CVGOutput(OutputChannel):
     # If you want to maintain an accurate history in the tracker when using the CVG API directly, we have to send an event.
     # Now, to prevent sending the message to CVG twice, this flag can be set to true so that the channel drops the message.
     def _is_ignored(self, custom_json) -> bool:
-        return custom_json is not None and "ignore" in custom_json and custom_json["ignore"] == True
+        return custom_json is not None and "ignore" in custom_json and custom_json["ignore"] is True
 
     async def _perform_request(self, path: str, method: str, data: Optional[any], dialog_id: Optional[str], retries: int = 0) -> (Optional[int], any):
         url = f"{self.base_url}{path}"
