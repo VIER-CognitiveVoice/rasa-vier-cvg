@@ -27,6 +27,7 @@ PROJECT_CONTEXT_FIELD = "projectContext"
 RESELLER_TOKEN_FIELD = "resellerToken"
 PROJECT_TOKEN_FIELD = "projectToken"
 CALLBACK_FIELD = "callback"
+AUTH_TOKEN_FIELD = "authToken"
 
 T = TypeVar('T')
 
@@ -66,6 +67,7 @@ class CVGOutput(OutputChannel):
 
     on_message: Callable[[UserMessage], Awaitable[Any]]
     base_url: str
+    headers: Dict[str, str]
     proxy: Optional[str]
     task_container: TaskContainer
 
@@ -73,10 +75,13 @@ class CVGOutput(OutputChannel):
     def name(cls) -> Text:
         return CHANNEL_NAME
 
-    def __init__(self, callback_base_url: Text, on_message: Callable[[UserMessage], Awaitable[Any]], proxy: Optional[str], task_container: TaskContainer, blocking_output: bool) -> None:
+    def __init__(self, callback_base_url: Text, auth_token: Text, on_message: Callable[[UserMessage], Awaitable[Any]], proxy: Optional[str], task_container: TaskContainer, blocking_output: bool) -> None:
         self.on_message = on_message
 
         self.base_url = callback_base_url.rstrip('/')
+        self.headers = {
+            "Authorization": f"Bearer {auth_token}",
+        }
         self.proxy = proxy
         self.task_container = task_container
         self.blocking_output = blocking_output
@@ -96,7 +101,7 @@ class CVGOutput(OutputChannel):
         status = -1
         body = None
         try:
-            async with aiohttp.request(method, url, json=data, proxy=self.proxy) as res:
+            async with aiohttp.request(method, url, json=data, proxy=self.proxy, headers=self.headers) as res:
                 status = res.status
                 if status == 204:
                     return status, {}
@@ -317,9 +322,17 @@ class CVGInput(InputChannel):
                 text = text[:-1]
 
             metadata = make_metadata(request.json)
+            cvg_output = CVGOutput(
+                request.json[CALLBACK_FIELD],
+                request.json[AUTH_TOKEN_FIELD],
+                on_new_message,
+                self.proxy,
+                self.task_container,
+                self.blocking_output
+            )
             user_msg = UserMessage(
                 text=text,
-                output_channel=CVGOutput(request.json[CALLBACK_FIELD], on_new_message, self.proxy, self.task_container, self.blocking_output),
+                output_channel=cvg_output,
                 sender_id=sender_id,
                 input_channel=CHANNEL_NAME,
                 metadata=metadata,
