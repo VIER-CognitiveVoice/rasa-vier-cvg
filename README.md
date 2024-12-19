@@ -45,6 +45,7 @@ Add the following content to `credentials.yml`:
 rasa_vier_cvg.CVGInput:
   token: "CHOOSE_YOUR_TOKEN"
   blocking_endpoints: false
+  blocking_output: false
 ```
 You can generate the token yourself. For example with any password generator.
 
@@ -53,6 +54,9 @@ The Bot token is required so that Rasa can verify that CVG is communicating with
 
 The optional `blocking_endpoints` option allows to disable blocking CVG's request while processing the user message.
 For compatibility reasons this option defaults to `true`, but we recommend setting it to `false`. The `/session` request is unaffected by this option and always blocks.
+
+The optional `blocking_output` option allows to disable blocking rasa during requests to CVG.
+For compatibility reasons this option defaults to `true`, but disabling it is encouraged.
 
 ### Configuring CVG
 
