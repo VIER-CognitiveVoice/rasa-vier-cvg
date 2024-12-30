@@ -4,7 +4,7 @@ with open("README.md") as f:
     long_description = f.read()
 
 setup(
-    name="rasa-vier-cvg",
+    name="rasa_vier_cvg",
     version="9.9.9",
     description="Rasa-integration for the VIER Cognitive Voice Gateway",
     author="VIER GmbH",
