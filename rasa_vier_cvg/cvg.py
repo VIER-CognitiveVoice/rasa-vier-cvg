@@ -210,9 +210,8 @@ class CVGOutput(OutputChannel):
 
             path = '/' + operation_name.replace('_', '/')
 
-            # The response from forward and bridge must be handled
-            handle_result_outbound_call_result_for = ["call_forward", "call_bridge"]
-            if operation_name in handle_result_outbound_call_result_for:
+            # The response from forward and refer must be handled differently.
+            if operation_name == 'call_forward':
                 async def handle_outbound(status_code, response_body):
                     await self._handle_bridge_result(status_code, response_body, dialog_id, recipient_id)
                 callback = handle_outbound
